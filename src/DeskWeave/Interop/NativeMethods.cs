@@ -22,7 +22,7 @@ internal static partial class NativeMethods
 
     internal static readonly IntPtr HWND_BOTTOM = new(1);
 
-    internal const uint MONITOR_DEFAULTTOPRIMARY = 1;
+    internal const uint MONITORINFOF_PRIMARY = 1;
     internal const int MDT_EFFECTIVE_DPI = 0;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -35,19 +35,14 @@ internal static partial class NativeMethods
     }
 
     [StructLayout(LayoutKind.Sequential)]
-    internal struct POINT
-    {
-        public int X;
-        public int Y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct MONITORINFO
+    internal unsafe struct MONITORINFOEX
     {
         public uint cbSize;
         public RECT rcMonitor;
         public RECT rcWork;
         public uint dwFlags;
+        // WCHAR[32]; ushort keeps the struct blittable for LibraryImport.
+        public fixed ushort szDevice[32];
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -84,12 +79,14 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool GlobalMemoryStatusEx(ref MEMORYSTATUSEX buffer);
 
-    [LibraryImport("user32.dll")]
-    internal static partial IntPtr MonitorFromPoint(POINT pt, uint flags);
-
     [LibraryImport("user32.dll", EntryPoint = "GetMonitorInfoW")]
     [return: MarshalAs(UnmanagedType.Bool)]
-    internal static partial bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+    internal static partial bool GetMonitorInfo(IntPtr monitor, ref MONITORINFOEX info);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static unsafe partial bool EnumDisplayMonitors(
+        IntPtr hdc, IntPtr clip, delegate* unmanaged<IntPtr, IntPtr, RECT*, IntPtr, int> callback, IntPtr data);
 
     [LibraryImport("shcore.dll")]
     internal static partial int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);

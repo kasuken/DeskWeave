@@ -33,14 +33,24 @@ The widget refreshes every 5 minutes and reuses the sign-ins of the official too
 
 ## Responsive layout
 
-- Content scales with the primary monitor's work area: `min(width/1920, height/1080)`, clamped to 0.7–1.8. The layout is Per-Monitor-V2 DPI aware.
+- Content scales with each target monitor's work area: `min(width/1920, height/1080)`, clamped to 0.7–1.8. The layout is Per-Monitor-V2 DPI aware, so every screen uses its own DPI.
 - The world clock picks one of three layouts depending on the available width:
   - a single strip;
   - balanced, wrapped wings;
   - a stacked layout on narrow screens.
 - GitHub status moves to the left of the monitor when there isn't enough vertical space, and hides when there's no room at all.
 - AI subscriptions hides when it doesn't fit above the clock or next to the monitor.
-- The layout is recalculated automatically when the resolution, DPI, taskbar or work area changes.
+- The layout is recalculated automatically when monitors are connected or disconnected, or when the resolution, DPI, taskbar or work area changes.
+
+## Screens
+
+The tray menu chooses where the widgets appear:
+
+- **Primary screen only** (default)
+- **Secondary screen only**
+- **Both screens**: each screen gets its own widgets laid out for that screen. Data is sampled and fetched once and shared.
+
+The choice is saved in `%LOCALAPPDATA%\DeskWeave\settings.json`. With one screen, **Secondary screen only** is disabled. If the saved secondary screen is disconnected, the widgets move to the primary screen until it returns, and the saved choice is kept. With more than two monitors, the secondary screen is the leftmost non-primary monitor (then topmost, then by device name), and **Both** uses only the primary and that secondary.
 
 ## Build and run
 
@@ -55,6 +65,7 @@ DeskWeave runs from the notification area. Its tray menu has these items:
 - **Show widgets**
 - **Refresh layout**
 - **Start with Windows** (adds a per-user Run key entry)
+- **Primary screen only**, **Secondary screen only**, **Both screens** (see [Screens](#screens))
 - **Exit**
 
 Double-click the tray icon to show or hide the widgets.
@@ -63,6 +74,7 @@ Double-click the tray icon to show or hide the widgets.
 
 - `src\DeskWeave.Core`: platform-independent logic:
   - world clock snapshots;
+  - monitor selection and the saved screen preference;
   - GitHub status parsing, polling and caching;
   - AI subscription parsing, refresh and caching;
   - rates, formatting and metric history.
@@ -77,6 +89,6 @@ Double-click the tray icon to show or hide the widgets.
 
 - **Temperatures:** CPU temperature uses the hottest ACPI thermal zone, which may not match the CPU package sensor. SSD temperature needs administrator rights, so it shows `N/A`.
 - **Show Desktop:** Win+D (Show Desktop) hides the widgets until they are toggled again.
-- **Monitors:** only the primary monitor is used.
+- **Monitors:** widgets appear on at most two screens: the primary and one secondary.
 - **Interaction:** the widgets are click-through, so they have no tooltips or other interaction.
 - **AI quotas:** DeskWeave doesn't refresh expired sign-ins. Running the provider's CLI renews them.

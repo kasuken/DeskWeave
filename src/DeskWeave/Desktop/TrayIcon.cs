@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using DeskWeave.Core.Display;
 using Forms = System.Windows.Forms;
 using static DeskWeave.Interop.NativeMethods;
 
@@ -33,6 +34,17 @@ public sealed class TrayIcon : IDisposable
         var startup = new Forms.ToolStripMenuItem("Start with Windows") { Checked = StartupRegistration.IsEnabled, CheckOnClick = true };
         startup.CheckedChanged += (_, _) => StartupRegistration.Set(startup.Checked);
 
+        (MonitorMode Mode, Forms.ToolStripMenuItem Item)[] screens =
+        [
+            (MonitorMode.Primary, new Forms.ToolStripMenuItem("Primary screen only")),
+            (MonitorMode.Secondary, new Forms.ToolStripMenuItem("Secondary screen only")),
+            (MonitorMode.Both, new Forms.ToolStripMenuItem("Both screens")),
+        ];
+        foreach (var (mode, item) in screens)
+        {
+            item.Click += (_, _) => _host.Mode = mode;
+        }
+
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(new Forms.ToolStripLabel("DeskWeave") { Enabled = false });
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -40,7 +52,24 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add("Refresh layout", null, (_, _) => _host.ScheduleLayout());
         menu.Items.Add(startup);
         menu.Items.Add(new Forms.ToolStripSeparator());
+        foreach (var (_, item) in screens)
+        {
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => exit());
+
+        // The saved preference stays checked even while a missing secondary screen forces a primary fallback;
+        // choosing an unavailable mode is only blocked when it is not already the preference.
+        menu.Opening += (_, _) =>
+        {
+            foreach (var (mode, item) in screens)
+            {
+                item.Checked = mode == _host.Mode;
+                item.Enabled = WidgetHost.IsModeAvailable(mode);
+            }
+        };
 
         _icon = new Forms.NotifyIcon
         {
