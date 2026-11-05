@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DeskWeave.Core/DeskWeave.Core.csproj" />
+    <Project Path="src/DeskWeave/DeskWeave.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DeskWeave.Core.Tests/DeskWeave.Core.Tests.csproj" />
+  </Folder>
+</Solution>

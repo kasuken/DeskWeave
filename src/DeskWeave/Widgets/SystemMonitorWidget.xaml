@@ -1,0 +1,99 @@
+<UserControl x:Class="DeskWeave.Widgets.SystemMonitorWidget"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="340">
+    <Border Style="{StaticResource WidgetPanel}">
+        <StackPanel>
+            <DockPanel Margin="0,0,0,10">
+                <TextBlock x:Name="Threads" DockPanel.Dock="Right" Style="{StaticResource Label}" Text="— threads" />
+                <TextBlock Style="{StaticResource Heading}" Text="SYSTEM" />
+            </DockPanel>
+
+            <!-- CPU -->
+            <Grid Margin="0,0,0,4">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="52" />
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="64" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Style="{StaticResource Label}" Text="CPU" />
+                <ProgressBar x:Name="CpuMeter" Grid.Column="1" Style="{StaticResource Meter}" />
+                <TextBlock x:Name="CpuValue" Grid.Column="2" Style="{StaticResource Value}" TextAlignment="Right" Text="N/A" />
+            </Grid>
+            <Border Height="34" Margin="52,2,0,10" Background="{StaticResource TrackBrush}" CornerRadius="3" ClipToBounds="True"
+                    ToolTip="CPU usage, last 90 seconds">
+                <Canvas x:Name="CpuHistory">
+                    <Polygon x:Name="CpuArea" Fill="{StaticResource AccentBrush}" Opacity="0.18" />
+                    <Polyline x:Name="CpuLine" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.4" StrokeLineJoin="Round" />
+                </Canvas>
+            </Border>
+
+            <!-- RAM -->
+            <Grid Margin="0,0,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="52" />
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="64" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Style="{StaticResource Label}" Text="RAM" />
+                <ProgressBar x:Name="RamMeter" Grid.Column="1" Style="{StaticResource Meter}" />
+                <TextBlock x:Name="RamValue" Grid.Column="2" Style="{StaticResource Value}" TextAlignment="Right" Text="N/A" />
+            </Grid>
+            <TextBlock x:Name="RamDetail" Margin="52,0,0,10" Style="{StaticResource Label}" Text="N/A" />
+
+            <!-- Disk -->
+            <Grid Margin="0,0,0,2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="52" />
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="64" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="DiskLabel" Style="{StaticResource Label}" Text="DISK" />
+                <ProgressBar x:Name="DiskMeter" Grid.Column="1" Style="{StaticResource Meter}" />
+                <TextBlock x:Name="DiskValue" Grid.Column="2" Style="{StaticResource Value}" TextAlignment="Right" Text="N/A" />
+            </Grid>
+            <TextBlock x:Name="DiskDetail" Margin="52,0,0,2" Style="{StaticResource Label}" Text="N/A" />
+            <TextBlock x:Name="DiskIo" Margin="52,0,0,10" Style="{StaticResource Label}" Text="R N/A   W N/A" />
+
+            <!-- Temperatures -->
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="52" />
+                    <ColumnDefinition />
+                    <ColumnDefinition />
+                </Grid.ColumnDefinitions>
+                <TextBlock Style="{StaticResource Label}" Text="TEMP" />
+                <TextBlock Grid.Column="1" Style="{StaticResource Value}">
+                    <Run Foreground="{StaticResource MutedBrush}" Text="CPU " /><Run x:Name="CpuTemp" Text="N/A" />
+                </TextBlock>
+                <TextBlock Grid.Column="2" Style="{StaticResource Value}"
+                           ToolTip="NVMe temperature needs administrator access on Windows">
+                    <Run Foreground="{StaticResource MutedBrush}" Text="SSD " /><Run x:Name="SsdTemp" Text="N/A" />
+                </TextBlock>
+            </Grid>
+
+            <!-- Network -->
+            <Rectangle Height="1" Margin="0,0,0,10" Fill="{StaticResource DividerBrush}" />
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="52" />
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Style="{StaticResource Label}" Text="NET" />
+                <TextBlock Grid.Column="1" Style="{StaticResource Value}">
+                    <Run x:Name="NetDot" Text="●" Foreground="{StaticResource MutedBrush}" />
+                    <Run x:Name="NetKind" Text="Network" Foreground="{StaticResource MutedBrush}" />
+                    <Run x:Name="NetName" Text="Disconnected" />
+                </TextBlock>
+                <TextBlock x:Name="NetSignal" Grid.Column="2" Style="{StaticResource Value}" />
+            </Grid>
+            <TextBlock x:Name="NetAddress" Margin="52,2,0,2" Style="{StaticResource Label}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Margin="52,0,0,0" Style="{StaticResource Value}">
+                <Run Foreground="{StaticResource GreenBrush}" Text="↓" /><Run x:Name="NetDown" Text=" N/A" />
+                <Run Text="   " />
+                <Run Foreground="{StaticResource MagentaBrush}" Text="↑" /><Run x:Name="NetUp" Text=" N/A" />
+            </TextBlock>
+        </StackPanel>
+    </Border>
+</UserControl>

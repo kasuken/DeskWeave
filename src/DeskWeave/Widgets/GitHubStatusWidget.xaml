@@ -1,0 +1,65 @@
+<UserControl x:Class="DeskWeave.Widgets.GitHubStatusWidget"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="340">
+    <Border Style="{StaticResource WidgetPanel}">
+        <StackPanel>
+            <TextBlock Style="{StaticResource Heading}" Text="GITHUB STATUS" Margin="0,0,0,6" />
+            <TextBlock x:Name="Overall" Style="{StaticResource Value}" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,10"
+                       TextWrapping="Wrap" TextTrimming="None">
+                <Run x:Name="OverallDot" Text="●" /> <Run x:Name="OverallText" Text="Checking…" />
+            </TextBlock>
+
+            <StackPanel x:Name="IncidentsPanel" Visibility="Collapsed" Margin="0,0,0,10">
+                <ItemsControl x:Name="Incidents">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border BorderBrush="{StaticResource OrangeBrush}" BorderThickness="2,0,0,0" Padding="8,2,0,2" Margin="0,0,0,6">
+                                <StackPanel>
+                                    <TextBlock Style="{StaticResource Value}" Text="{Binding Name}" TextWrapping="Wrap" TextTrimming="None" />
+                                    <TextBlock Style="{StaticResource Label}" Text="{Binding Status}" Foreground="{StaticResource OrangeBrush}" />
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock x:Name="MoreIncidents" Style="{StaticResource Label}" Visibility="Collapsed" />
+            </StackPanel>
+
+            <ItemsControl x:Name="Components">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,0,0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource Value}" Text="{Binding Name}" Margin="0,0,8,0" />
+                            <TextBlock Grid.Column="1" Style="{StaticResource Label}" Foreground="{Binding Brush}">
+                                <Run Text="●" /> <Run Text="{Binding Label, Mode=OneWay}" />
+                            </TextBlock>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <StackPanel x:Name="MaintenancePanel" Visibility="Collapsed" Margin="0,6,0,0">
+                <TextBlock Style="{StaticResource Label}" Foreground="{StaticResource BlueBrush}" Text="MAINTENANCE" Margin="0,0,0,4" />
+                <ItemsControl x:Name="Maintenance">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Style="{StaticResource Label}" TextWrapping="Wrap" Margin="0,0,0,4">
+                                <Run Text="{Binding Name, Mode=OneWay}" Foreground="{StaticResource ForegroundBrush}" />
+                                <LineBreak />
+                                <Run Text="{Binding Detail, Mode=OneWay}" />
+                            </TextBlock>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
+            <Rectangle Height="1" Margin="0,8,0,8" Fill="{StaticResource DividerBrush}" />
+            <TextBlock x:Name="Footer" Style="{StaticResource Label}" Text="githubstatus.com" TextWrapping="Wrap" />
+        </StackPanel>
+    </Border>
+</UserControl>
