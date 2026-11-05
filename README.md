@@ -10,9 +10,26 @@ DeskWeave is built with .NET 10 and WPF. It pins borderless, click-through panel
 | **World clock** | Bottom center | Your local city as a large centered clock, plus 16 cities sorted by UTC offset, with dates, offsets and `+1d`/`-1d` day markers |
 | **System monitor** | Top right | CPU (with a 90 s sparkline), RAM, system drive space and I/O, temperatures, network adapter, IP, Wi-Fi signal, and up/down rates |
 | **GitHub status** | Below the monitor | Overall status, active incidents, components, and scheduled maintenance from the public [githubstatus.com](https://www.githubstatus.com) API |
+| **AI subscriptions** | Top left | Plan, usage meters, consumption and reset times for paid Claude, Codex, GitHub Copilot and Antigravity subscriptions |
 
 The GitHub status widget polls at most once per minute and honors `Retry-After`.
 It keeps a 24-hour cache in `%LOCALAPPDATA%\DeskWeave` and shows stale data in gray while offline.
+
+### AI subscriptions
+
+The widget refreshes every 5 minutes and reuses the sign-ins of the official tools. It shows only recognized paid plans.
+
+| Provider | Sign-in it reads | Endpoint |
+| --- | --- | --- |
+| Claude | `%CLAUDE_CONFIG_DIR%` or `~\.claude\.credentials.json` | `api.anthropic.com/api/oauth/usage` |
+| Codex | `%CODEX_HOME%` or `~\.codex\auth.json` (ChatGPT login) | `chatgpt.com/backend-api/wham/usage` |
+| GitHub Copilot | the `gh` CLI login (DeskWeave runs `gh api /copilot_internal/user` and never sees the token) | via `gh` |
+| Antigravity | Credential Manager entry `gemini:antigravity`, or `~\.gemini\antigravity-cli\antigravity-oauth-token` | `daily-cloudcode-pa.googleapis.com` |
+
+- **Missing or free:** a provider without a sign-in, or on a free plan, is not shown. The widget hides when no paid plans are found.
+- **Expired sign-in:** the plan stays visible with "Sign in to refresh". Sign in again with that provider's CLI.
+- **Offline:** the last known values are kept for up to 24 hours, gray and marked "Last known".
+- **Privacy:** tokens are read on each refresh and sent only to the provider's own HTTPS host. Redirects are not followed, and tokens are never logged or cached. `%LOCALAPPDATA%\DeskWeave\ai-quota.json` holds only plans, limits and reset times.
 
 ## Responsive layout
 
@@ -22,6 +39,7 @@ It keeps a 24-hour cache in `%LOCALAPPDATA%\DeskWeave` and shows stale data in g
   - balanced, wrapped wings;
   - a stacked layout on narrow screens.
 - GitHub status moves to the left of the monitor when there isn't enough vertical space, and hides when there's no room at all.
+- AI subscriptions hides when it doesn't fit above the clock or next to the monitor.
 - The layout is recalculated automatically when the resolution, DPI, taskbar or work area changes.
 
 ## Build and run
@@ -46,6 +64,7 @@ Double-click the tray icon to show or hide the widgets.
 - `src\DeskWeave.Core`: platform-independent logic:
   - world clock snapshots;
   - GitHub status parsing, polling and caching;
+  - AI subscription parsing, refresh and caching;
   - rates, formatting and metric history.
 - `src\DeskWeave`: WPF app:
   - desktop windows and layout;
@@ -60,4 +79,4 @@ Double-click the tray icon to show or hide the widgets.
 - **Show Desktop:** Win+D (Show Desktop) hides the widgets until they are toggled again.
 - **Monitors:** only the primary monitor is used.
 - **Interaction:** the widgets are click-through, so they have no tooltips or other interaction.
-- **AI quotas:** the AI quota widget from Omarchy is not built yet. [kasuken/vscode-aiquota](https://github.com/kasuken/vscode-aiquota) is the reference for adding it.
+- **AI quotas:** DeskWeave doesn't refresh expired sign-ins. Running the provider's CLI renews them.

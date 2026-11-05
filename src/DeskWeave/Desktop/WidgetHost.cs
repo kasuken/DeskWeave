@@ -1,6 +1,7 @@
 using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
+using DeskWeave.Core.AiQuota;
 using DeskWeave.Core.GitHubStatus;
 using DeskWeave.Services;
 using DeskWeave.Widgets;
@@ -22,11 +23,19 @@ public sealed class WidgetHost : IDisposable
     private readonly SystemMonitorWidget _monitor = new();
     private readonly GitHubStatusWidget _github = new();
     private readonly WorldClockWidget _clock = new();
+    private readonly AiQuotaWidget _quota = new();
     private readonly DesktopWidgetWindow _monitorWindow;
     private readonly DesktopWidgetWindow _githubWindow;
     private readonly DesktopWidgetWindow _clockWindow;
+    private readonly DesktopWidgetWindow _quotaWindow;
     private readonly CancellationTokenSource _stopping = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
+
+    // Quota requests carry bearer tokens, so redirects are never followed to another host.
+    private readonly HttpClient _quotaHttp = new(new HttpClientHandler { AllowAutoRedirect = false })
+    {
+        Timeout = TimeSpan.FromSeconds(15),
+    };
     private bool _layoutPending;
     private bool _visible;
 
@@ -35,6 +44,7 @@ public sealed class WidgetHost : IDisposable
         _monitorWindow = new DesktopWidgetWindow(_monitor, "System");
         _githubWindow = new DesktopWidgetWindow(_github, "GitHub Status");
         _clockWindow = new DesktopWidgetWindow(_clock, "World Clock");
+        _quotaWindow = new DesktopWidgetWindow(_quota, "AI Subscriptions");
 
         foreach (var window in Windows)
         {
@@ -48,13 +58,14 @@ public sealed class WidgetHost : IDisposable
 
     public bool IsVisible => _visible;
 
-    private IEnumerable<DesktopWidgetWindow> Windows => [_monitorWindow, _githubWindow, _clockWindow];
+    private IEnumerable<DesktopWidgetWindow> Windows => [_monitorWindow, _githubWindow, _clockWindow, _quotaWindow];
 
     public void Start()
     {
         Show();
         _ = RunSystemMonitorAsync(_stopping.Token);
         _ = RunGitHubStatusAsync(_stopping.Token);
+        _ = RunAiQuotaAsync(_stopping.Token);
     }
 
     public void Show()
@@ -117,14 +128,29 @@ public sealed class WidgetHost : IDisposable
         var monitorBottom = work.Top + margin + monitorSize.Height;
         Place(_monitorWindow, monitorLeft, work.Top + margin);
 
+        // AI subscriptions: top left, hidden when there are no paid plans or it does not fit above the clock.
+        var limit = clockTop - gap;
+        var leftBound = work.Left + margin;
+        var quotaSize = _quotaWindow.MeasureScaled();
+        if (_quota.HasProviders
+            && work.Top + margin + quotaSize.Height <= limit
+            && work.Left + margin + quotaSize.Width + gap <= monitorLeft)
+        {
+            Place(_quotaWindow, work.Left + margin, work.Top + margin);
+            leftBound += quotaSize.Width + gap;
+        }
+        else
+        {
+            _quotaWindow.Hide();
+        }
+
         // GitHub status: below the monitor when tall enough, beside it on short wide screens, otherwise hidden.
         var githubSize = _githubWindow.MeasureScaled();
-        var limit = clockTop - gap;
         if (monitorBottom + gap + githubSize.Height <= limit)
         {
             Place(_githubWindow, work.Right - margin - githubSize.Width, monitorBottom + gap);
         }
-        else if (work.Top + margin + githubSize.Height <= limit && monitorLeft - gap - githubSize.Width >= work.Left + margin)
+        else if (work.Top + margin + githubSize.Height <= limit && monitorLeft - gap - githubSize.Width >= leftBound)
         {
             Place(_githubWindow, monitorLeft - gap - githubSize.Width, work.Top + margin);
         }
@@ -170,6 +196,29 @@ public sealed class WidgetHost : IDisposable
         }
     }
 
+    private async Task RunAiQuotaAsync(CancellationToken cancellationToken)
+    {
+        var cacheFile = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskWeave", "ai-quota.json");
+        var service = new AiQuotaService(
+            _quotaHttp,
+            QuotaSources.Default(() => WindowsCredentialReader.ReadGeneric(WindowsCredentialReader.AntigravityTarget)),
+            cacheFile);
+        var quotas = service.LoadCached();
+        _quota.Update(quotas, refreshing: true, updatedAt: null);
+        ScheduleLayout();
+
+        using var timer = new PeriodicTimer(AiQuotaService.RefreshInterval);
+        do
+        {
+            _quota.Update(quotas, refreshing: true, updatedAt: null);
+            quotas = await Task.Run(() => service.RefreshAsync(cancellationToken), cancellationToken);
+            _quota.Update(quotas, refreshing: false, updatedAt: DateTimeOffset.Now);
+            ScheduleLayout();
+        }
+        while (await timer.WaitForNextTickAsync(cancellationToken));
+    }
+
     private void OnDisplayChanged(object? sender, EventArgs e) => ScheduleLayoutFromAnyThread();
 
     private void OnUserPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
@@ -195,6 +244,7 @@ public sealed class WidgetHost : IDisposable
         }
 
         _http.Dispose();
+        _quotaHttp.Dispose();
         _stopping.Dispose();
     }
 }

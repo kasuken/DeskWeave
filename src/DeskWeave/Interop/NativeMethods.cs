@@ -110,4 +110,31 @@ internal static partial class NativeMethods
 
     [LibraryImport("iphlpapi.dll")]
     internal static partial uint GetBestInterface(uint destinationAddress, out uint bestInterfaceIndex);
+
+    internal const uint CRED_TYPE_GENERIC = 1;
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct CREDENTIAL
+    {
+        public uint Flags;
+        public uint Type;
+        public IntPtr TargetName;
+        public IntPtr Comment;
+        public uint LastWrittenLow;
+        public uint LastWrittenHigh;
+        public uint CredentialBlobSize;
+        public IntPtr CredentialBlob;
+        public uint Persist;
+        public uint AttributeCount;
+        public IntPtr Attributes;
+        public IntPtr TargetAlias;
+        public IntPtr UserName;
+    }
+
+    [LibraryImport("advapi32.dll", EntryPoint = "CredReadW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool CredRead(string targetName, uint type, uint flags, out IntPtr credential);
+
+    [LibraryImport("advapi32.dll")]
+    internal static partial void CredFree(IntPtr buffer);
 }
