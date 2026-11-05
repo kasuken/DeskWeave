@@ -29,7 +29,8 @@ public sealed record SystemSample(
     DiskSample? Disk,
     double? CpuTemperature,
     double? SsdTemperature,
-    NetworkSample Network);
+    NetworkSample Network,
+    IReadOnlyList<AcceleratorSample> Accelerators);
 
 /// <summary>
 /// Local-only telemetry sampler. Unsupported or unreadable values stay null and render as N/A.
@@ -41,6 +42,7 @@ public sealed partial class SystemMetricsSampler : IDisposable
 
     private readonly string _diskPath = Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\";
     private readonly Stopwatch _clock = Stopwatch.StartNew();
+    private readonly AcceleratorSampler _accelerators = new();
 
     private CpuTimes? _previousCpu;
     private (long Received, long Sent)? _previousNetwork;
@@ -74,7 +76,8 @@ public sealed partial class SystemMetricsSampler : IDisposable
         var network = SampleNetwork(now, elapsed);
         _previousTime = now;
 
-        return new SystemSample(cpu, Environment.ProcessorCount, ReadMemory(), ReadDisk(), ReadCpuTemperature(), null, network);
+        return new SystemSample(cpu, Environment.ProcessorCount, ReadMemory(), ReadDisk(), ReadCpuTemperature(), null, network,
+            _accelerators.Sample());
     }
 
     private static CpuTimes? ReadCpuTimes() =>

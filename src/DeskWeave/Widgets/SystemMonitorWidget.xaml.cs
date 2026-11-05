@@ -48,6 +48,8 @@ public partial class SystemMonitorWidget : UserControl
         CpuTemp.Text = Formatting.Temperature(sample.CpuTemperature);
         CpuTemp.Foreground = TemperatureBrush(sample.CpuTemperature);
         SsdTemp.Text = Formatting.Temperature(sample.SsdTemperature);
+        Accelerators.ItemsSource = sample.Accelerators.Where(a => a.HasTelemetry)
+            .Select(a => new AcceleratorCard(a.Name, a.Kind, AcceleratorPresentation.Rows(a))).ToArray();
 
         var network = sample.Network;
         var connectedBrush = Brush(network.Connected ? "GreenBrush" : "MutedBrush");
@@ -60,6 +62,8 @@ public partial class SystemMonitorWidget : UserControl
         NetDown.Text = " " + Formatting.Rate(network.Download);
         NetUp.Text = " " + Formatting.Rate(network.Upload);
     }
+
+    public sealed record AcceleratorCard(string Name, string Kind, IReadOnlyList<AcceleratorRow> Rows);
 
     private void SetMeter(ProgressBar meter, TextBlock value, double? percent)
     {

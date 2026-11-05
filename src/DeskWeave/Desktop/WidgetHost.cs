@@ -124,6 +124,13 @@ public sealed class WidgetHost : IDisposable
 
         // System monitor: top right.
         var monitorSize = _monitorWindow.MeasureScaled();
+        var availableHeight = clockTop - gap - work.Top - margin;
+        if (monitorSize.Height > availableHeight && availableHeight > 0)
+        {
+            // Read-only widgets cannot scroll. Fit all adapters above the clock instead of clipping.
+            _monitorWindow.Scale = scale * availableHeight / monitorSize.Height;
+            monitorSize = _monitorWindow.MeasureScaled();
+        }
         var monitorLeft = work.Right - margin - monitorSize.Width;
         var monitorBottom = work.Top + margin + monitorSize.Height;
         Place(_monitorWindow, monitorLeft, work.Top + margin);

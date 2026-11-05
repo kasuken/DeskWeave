@@ -8,12 +8,29 @@ DeskWeave is built with .NET 10 and WPF. It pins borderless, click-through panel
 | Widget | Position | Shows |
 | --- | --- | --- |
 | **World clock** | Bottom center | Your local city as a large centered clock, plus 16 cities sorted by UTC offset, with dates, offsets and `+1d`/`-1d` day markers |
-| **System monitor** | Top right | CPU (with a 90 s sparkline), RAM, system drive space and I/O, temperatures, network adapter, IP, Wi-Fi signal, and up/down rates |
+| **System monitor** | Top right | CPU (with a 90 s sparkline), RAM, system drive space and I/O, temperatures, network adapter, IP, Wi-Fi signal, up/down rates, and available GPU/NPU telemetry |
 | **GitHub status** | Below the monitor | Overall status, active incidents, components, and scheduled maintenance from the public [githubstatus.com](https://www.githubstatus.com) API |
 | **AI subscriptions** | Top left | Plan, usage meters, consumption and reset times for paid Claude, Codex, GitHub Copilot and Antigravity subscriptions |
 
 The GitHub status widget polls at most once per minute and honors `Retry-After`.
 It keeps a 24-hour cache in `%LOCALAPPDATA%\DeskWeave` and shows stale data in gray while offline.
+
+### GPU and NPU telemetry
+
+The existing two-second background sampler reads Windows GPU Engine and GPU Adapter Memory counters.
+DXCore discovers hardware adapters and maps counters by their full LUID, supporting multiple GPUs without matching by name or array order.
+Adapters explicitly identified by Windows as NPUs are labeled NPU; other compute-only devices are labeled Accelerator.
+
+- **Utilization:** overall load is the busiest physical engine, not the sum of overlapping engines. Process contributions are added only within the same engine, capped at 100%. Engine types (3D, compute, video encode/decode, copy, etc.) appear exactly when the driver exposes them. New/reset process counters make their engine and overall load unknown for one sample, rather than looking idle while warming up.
+- **Memory:** dedicated usage and adapter-memory capacity are separate from shared system-memory usage and its maximum. Shared capacity is a limit, not reserved VRAM. Integrated GPUs may report zero dedicated adapter memory; their system-memory reservation must not be presented as discrete VRAM. Unknown capacities are omitted.
+- **Sensors:** read-only WDDM adapter-performance queries supply temperature, relative power percentage (not watts), and fan RPM where the driver supports them. Zero sensor placeholders are hidden; stopped fans are shown as 0 RPM only when fan capability is confirmed.
+- **Unavailable:** missing, inaccessible, or failed new metrics are omitted. An adapter with only identity/static capacity and no meaningful live readings is hidden. Measured zero utilization or memory use remains visible. Existing CPU/RAM/disk/network unavailable behavior is unchanged.
+- **Permissions and overhead:** no administrator requirement, vendor monitoring dependency, kernel-driver installation, or configuration changes. Discovery refreshes every 30 seconds; each counter category is read once per sample. Counter failures are traced and retried, with no stale readings substituted for failures.
+
+NPU identity does not guarantee utilization support: Windows/driver versions differ, and generic ML support alone does not prove a device is an NPU.
+Sensors are optional and there is no universal Windows GPU/NPU power-in-watts or fan API.
+Sensor queries address physical node 0 on linked adapters.
+Hardware-monitoring packages were deliberately avoided because their extra vendor libraries, privileged driver paths and licensing surface would not guarantee these sensors.
 
 ### AI subscriptions
 
@@ -39,6 +56,7 @@ The widget refreshes every 5 minutes and reuses the sign-ins of the official too
   - balanced, wrapped wings;
   - a stacked layout on narrow screens.
 - GitHub status moves to the left of the monitor when there isn't enough vertical space, and hides when there's no room at all.
+- The system monitor scales down further when necessary to fit all available accelerator cards above the clock; click-through panels do not require scrolling.
 - AI subscriptions hides when it doesn't fit above the clock or next to the monitor.
 - The layout is recalculated automatically when the resolution, DPI, taskbar or work area changes.
 
