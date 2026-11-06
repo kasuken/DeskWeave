@@ -1,116 +1,125 @@
 # DeskWeave
 
-Native Windows desktop widgets inspired by the widgets in [kasuken/omarchy-setup](https://github.com/kasuken/omarchy-setup).
-DeskWeave is built with .NET 10 and WPF. It pins borderless, click-through panels to the desktop and styles them with the Neon Intrusion palette.
+**Your desktop, tuned for AI-native engineering.**
 
-## Widgets (MVP)
+AI subscription quotas. Machine health. GitHub status. World time. Native Windows widgets that keep your working context in view, without another dashboard tab.
 
-| Widget | Position | Shows |
-| --- | --- | --- |
-| **World clock** | Bottom center | Your local city as a large centered clock, with exactly 8 cities on each side sorted by UTC offset, dates, offsets and `+1d`/`-1d` day markers |
-| **System monitor** | Top right | CPU (with a 90 s sparkline), RAM, system drive space and I/O, temperatures, network adapter, IP, Wi-Fi signal, up/down rates, and available GPU/NPU telemetry |
-| **GitHub status** | Below the monitor | Overall status, active incidents, components, and scheduled maintenance from the public [githubstatus.com](https://www.githubstatus.com) API |
-| **AI subscriptions** | Top left | Plan, usage meters, consumption and reset times for paid Claude, Codex, GitHub Copilot and Antigravity subscriptions |
+![DeskWeave on an actual Full HD secondary monitor: AI subscription quotas at top left, CPU, GPU and NPU metrics and GitHub status at right, and 17 clocks along the bottom.](docs/assets/deskweave-full-hd.png)
 
-The world clock selects from Honolulu, Anchorage, San Francisco, Denver, Chicago, New York, Sao Paulo, London, Zurich, Cairo, Moscow, Dubai, Mumbai, Singapore, Tokyo, Sydney and Auckland, each in a distinct time zone.
-The local city moves to the center when its zone matches; otherwise, the nearest-offset city is omitted so both wings still contain 8 clocks. Equal offsets use the listed order to break ties. Cities are split evenly by count, not by whether they are ahead of or behind local time.
+*Actual secondary-screen capture at native 1920 x 1080. The network address line is redacted; all other readings, including the sign-in warning, are unchanged.*
 
-The GitHub status widget polls at most once per minute and honors `Retry-After`.
-It keeps a 24-hour cache in `%LOCALAPPDATA%\DeskWeave` and shows stale data in gray while offline.
+## Less tab-switching. More context.
 
-### GPU and NPU telemetry
+- **See your AI headroom.** Recognized paid Claude, Codex, GitHub Copilot and Antigravity plans, with available usage meters and reset times.
+- **Know what your machine is doing.** CPU history, RAM, system-drive space and I/O, network rates, and GPU/NPU telemetry where Windows exposes it.
+- **Check GitHub before debugging your setup.** Public service health, affected components, active incidents and scheduled maintenance.
+- **Work across time zones.** Your local clock takes center stage, with eight cities on each side, UTC offsets and day-change markers.
+- **Put a spare screen to work.** Choose primary, secondary or both. Borderless, click-through panels stay above the wallpaper and behind your apps.
 
-The existing two-second background sampler reads Windows GPU Engine and GPU Adapter Memory counters.
-DXCore discovers hardware adapters and maps counters by their full LUID, supporting multiple GPUs without matching by name or array order.
-Adapters explicitly identified by Windows as NPUs are labeled NPU; other compute-only devices are labeled Accelerator.
+Built with **.NET 10 + WPF**, styled with the Neon Intrusion palette, and inspired by [omarchy-setup](https://github.com/kasuken/omarchy-setup).
 
-- **Utilization:** overall load is the busiest physical engine, not the sum of overlapping engines. Process contributions are added only within the same engine, capped at 100%. Engine types (3D, compute, video encode/decode, copy, etc.) appear exactly when the driver exposes them. New/reset process counters make their engine and overall load unknown for one sample, rather than looking idle while warming up.
-- **Memory:** dedicated usage and adapter-memory capacity are separate from shared system-memory usage and its maximum. Shared capacity is a limit, not reserved VRAM. Integrated GPUs may report zero dedicated adapter memory; their system-memory reservation must not be presented as discrete VRAM. Unknown capacities are omitted.
-- **Sensors:** read-only WDDM adapter-performance queries supply temperature, relative power percentage (not watts), and fan RPM where the driver supports them. Zero sensor placeholders are hidden; stopped fans are shown as 0 RPM only when fan capability is confirmed.
-- **Unavailable:** missing, inaccessible, or failed new metrics are omitted. An adapter with only identity/static capacity and no meaningful live readings is hidden. Measured zero utilization or memory use remains visible. Existing CPU/RAM/disk/network unavailable behavior is unchanged.
-- **Permissions and overhead:** no administrator requirement, vendor monitoring dependency, kernel-driver installation, or configuration changes. Discovery refreshes every 30 seconds; each counter category is read once per sample. Counter failures are traced and retried, with no stale readings substituted for failures.
+## Up and running
 
-NPU identity does not guarantee utilization support: Windows/driver versions differ, and generic ML support alone does not prove a device is an NPU.
-Sensors are optional and there is no universal Windows GPU/NPU power-in-watts or fan API.
-Sensor queries address physical node 0 on linked adapters.
-Hardware-monitoring packages were deliberately avoided because their extra vendor libraries, privileged driver paths and licensing surface would not guarantee these sensors.
+**Prerequisites:** a Windows 10/11 desktop supported by .NET 10 and the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0). Linux and macOS cannot run the WPF app. Provider CLIs and paid accounts are optional; the other widgets work without them.
 
-### AI subscriptions
-
-The widget refreshes every 5 minutes and reuses the sign-ins of the official tools. It shows only recognized paid plans.
-
-| Provider | Sign-in it reads | Endpoint |
-| --- | --- | --- |
-| Claude | `%CLAUDE_CONFIG_DIR%` or `~\.claude\.credentials.json` | `api.anthropic.com/api/oauth/usage` |
-| Codex | `%CODEX_HOME%` or `~\.codex\auth.json` (ChatGPT login) | `chatgpt.com/backend-api/wham/usage` |
-| GitHub Copilot | the `gh` CLI login (DeskWeave runs `gh api /copilot_internal/user` and never sees the token) | via `gh` |
-| Antigravity | Credential Manager entry `gemini:antigravity`, or `~\.gemini\antigravity-cli\antigravity-oauth-token` | `daily-cloudcode-pa.googleapis.com` |
-
-- **Missing or free:** a provider without a sign-in, or on a free plan, is not shown. The widget hides when no paid plans are found.
-- **Expired sign-in:** the plan stays visible with "Sign in to refresh". Sign in again with that provider's CLI.
-- **Offline:** the last known values are kept for up to 24 hours, gray and marked "Last known".
-- **Privacy:** tokens are read on each refresh and sent only to the provider's own HTTPS host. Redirects are not followed, and tokens are never logged or cached. `%LOCALAPPDATA%\DeskWeave\ai-quota.json` holds only plans, limits and reset times.
-
-## Responsive layout
-
-- Content scales with each target monitor's work area: `min(width/1920, height/1080)`, clamped to 0.7–1.8. The layout is Per-Monitor-V2 DPI aware, so every screen uses its own DPI.
-- The world clock picks one of three layouts depending on the available width:
-  - a single strip;
-  - balanced, wrapped wings;
-  - a stacked layout on narrow screens.
-- GitHub status moves to the left of the monitor when there isn't enough vertical space, and hides when there's no room at all.
-- The system monitor scales down further when necessary to fit all available accelerator cards above the clock; click-through panels do not require scrolling.
-- AI subscriptions hides when it doesn't fit above the clock or next to the monitor.
-- The layout is recalculated automatically when monitors are connected or disconnected, or when the resolution, DPI, taskbar or work area changes.
-
-## Screens
-
-The tray menu chooses where the widgets appear:
-
-- **Primary screen only** (default)
-- **Secondary screen only**
-- **Both screens**: each screen gets its own widgets laid out for that screen. Data is sampled and fetched once and shared.
-
-The choice is saved in `%LOCALAPPDATA%\DeskWeave\settings.json`. With one screen, **Secondary screen only** is disabled. If the saved secondary screen is disconnected, the widgets move to the primary screen until it returns, and the saved choice is kept. With more than two monitors, the secondary screen is the leftmost non-primary monitor (then topmost, then by device name), and **Both** uses only the primary and that secondary.
-
-## Build and run
+Open PowerShell in this repository's root:
 
 ```powershell
-dotnet build DeskWeave.slnx
-dotnet test
-dotnet run --project src\DeskWeave
+dotnet run --project .\src\DeskWeave\DeskWeave.csproj --configuration Release
 ```
 
-DeskWeave runs from the notification area. Its tray menu has these items:
+The command restores dependencies, builds the app and starts its notification-area icon. No administrator access is required.
 
-- **Show widgets**
-- **Refresh layout**
-- **Start with Windows** (adds a per-user Run key entry)
-- **Primary screen only**, **Secondary screen only**, **Both screens** (see [Screens](#screens))
-- **Exit**
+> [!TIP]
+> No app window to open: look for **DeskWeave** in the notification area, including its hidden-icons menu. Only one instance runs at a time; exit an existing instance before launching a different build.
 
-Double-click the tray icon to show or hide the widgets.
+## Make it your desktop
 
-## Project layout
+Right-click the tray icon to select a screen:
 
-- `src\DeskWeave.Core`: platform-independent logic:
-  - world clock snapshots;
-  - monitor selection and the saved screen preference;
-  - GitHub status parsing, polling and caching;
-  - AI subscription parsing, refresh and caching;
-  - rates, formatting and metric history.
-- `src\DeskWeave`: WPF app:
-  - desktop windows and layout;
-  - the Windows metrics sampler;
-  - the widgets;
-  - the tray icon.
-- `tests\DeskWeave.Core.Tests`: xUnit tests for the Core library.
-- `tests\DeskWeave.Tests`: STA WPF tests for responsive clock layout and integrated widget rendering.
+| Tray option | Behavior |
+| --- | --- |
+| **Primary screen only** | Default. Widgets appear on the primary display. |
+| **Secondary screen only** | Widgets appear on one non-primary display. Disabled when none is connected. |
+| **Both screens** | A separately laid-out set on each display, sharing one set of sampling and polling loops. |
 
-## Known limitations
+Screen selection survives restarts. Disconnecting the selected secondary temporarily moves its widgets to the primary; reconnecting restores the saved choice. With more than two monitors, DeskWeave uses the primary and the leftmost non-primary display, breaking ties by top edge, then device name.
 
-- **Temperatures:** CPU temperature uses the hottest ACPI thermal zone, which may not match the CPU package sensor. SSD temperature needs administrator rights, so it shows `N/A`.
-- **Show Desktop:** Win+D (Show Desktop) hides the widgets until they are toggled again.
-- **Monitors:** widgets appear on at most two screens: the primary and one secondary.
-- **Interaction:** the widgets are click-through, so they have no tooltips or other interaction.
-- **AI quotas:** DeskWeave doesn't refresh expired sign-ins. Running the provider's CLI renews them.
+Double-click the icon to show/hide widgets. The menu also provides **Show widgets**, **Refresh layout**, **Start with Windows** and **Exit**. Startup registration writes only a per-user Windows Run entry pointing to the current executable; keep that build in a stable location if you enable it.
+
+Each screen uses its own DPI and work area. Layout updates when resolution, scaling, taskbar or connected displays change. Clocks wrap or stack on narrower screens; the system panel scales down to fit. GitHub status may move beside it, and status or quota panels hide when space is insufficient.
+
+## Connect your AI subscriptions
+
+There is no separate DeskWeave account or API-key form. Sign in with the supported provider tools; DeskWeave reads their existing local credentials on each refresh.
+
+| Provider | Sign-in source | Requests go to |
+| --- | --- | --- |
+| **Claude** | `~\.claude\.credentials.json`, or `.credentials.json` under `CLAUDE_CONFIG_DIR` | `api.anthropic.com/api/oauth/usage` |
+| **Codex** | ChatGPT sign-in in `~\.codex\auth.json`, or `auth.json` under `CODEX_HOME`; API-key mode is not supported | `chatgpt.com/backend-api/wham/usage` |
+| **GitHub Copilot** | GitHub CLI (`gh`) installed on `PATH` and signed into `github.com` | `gh api --hostname github.com /copilot_internal/user`; `gh` handles the token |
+| **Antigravity** | Windows Credential Manager entry `gemini:antigravity`, falling back to `~\.gemini\antigravity-cli\antigravity-oauth-token`; `AGY_DIR` overrides that directory | `daily-cloudcode-pa.googleapis.com` |
+
+Here, `~` means your Windows user-profile folder. These environment variables override credential directories, not individual file paths.
+
+Quota refreshes run every **five minutes**. Missing credentials and free or unrecognized plans are omitted; no recognized plans means no quota panel. An available plan can still report **Quota unavailable** if its endpoint returns no supported limits.
+
+> [!IMPORTANT]
+> DeskWeave does not renew credentials. For **Sign in to refresh**, renew the sign-in using that provider's tool and wait for the next refresh. Provider usage APIs, including internal endpoints, can change independently of DeskWeave. This is a quota display, not a billing meter or agent-task tracker.
+
+## Data, privacy and offline behavior
+
+Machine metrics and clocks are calculated locally. **DeskWeave is not offline-only:** it contacts the public [GitHub Status API](https://www.githubstatus.com/api/v2/summary.json) at most once per minute, honoring `Retry-After`, and contacts the quota endpoints above when credentials are available.
+
+Direct quota requests send bearer tokens only to the allowed provider HTTPS hosts; redirects are disabled. Those tokens are not logged or cached. For Copilot, DeskWeave invokes `gh` and reads its response rather than retrieving the GitHub token.
+
+Local files live in `%LOCALAPPDATA%\DeskWeave`:
+
+| File | Contents |
+| --- | --- |
+| `settings.json` | Saved monitor mode: `Primary`, `Secondary` or `Both`. Prefer changing it through the tray. |
+| `github-status.json` | Cached public service status. |
+| `ai-quota.json` | Display data: plan labels, usage limits, reset times and freshness/status metadata; no credentials. |
+
+Status and quota caches retain last-known data for up to **24 hours**. Offline readings are explicitly marked and gray, not presented as fresh. Without recent data, status reports unavailable and quota providers can disappear.
+
+> [!WARNING]
+> The system panel displays your network name and IP address. Review screenshots before sharing them, and never publish provider credential files or raw authentication responses.
+
+## Hardware and desktop limits
+
+GPU/NPU readings depend on the Windows version, hardware and driver. No extra monitoring driver or vendor package is installed. Unsupported accelerator readings are **hidden**, not invented; an adapter with no meaningful live telemetry is hidden too.
+
+<details>
+<summary>What the hardware numbers mean</summary>
+
+- Sampling runs every two seconds; adapter discovery refreshes every 30 seconds. DXCore identifies adapters, Windows performance counters supply load/memory, and read-only WDDM queries supply optional sensors.
+- Overall utilization is the busiest physical engine, not the sum of overlapping engine percentages. New/reset counters can make a reading temporarily unknown.
+- Dedicated and shared memory are separate. Shared capacity is a limit, not reserved VRAM; integrated-GPU dedicated capacity is not necessarily discrete VRAM.
+- NPU identity does not guarantee usable utilization counters. Only explicitly identified NPUs receive that label; other compute-only devices are labeled Accelerator.
+- Temperature, fan RPM and **relative power percentage** appear only when supported. Relative power is not watts. Sensor queries use physical node 0 on linked adapters.
+- CPU temperature is the hottest available ACPI thermal zone, not necessarily the CPU package. SSD temperature is currently unimplemented and remains `N/A`; running as administrator does not enable it.
+
+</details>
+
+Widgets are read-only and click-through: no dragging, scrolling, tooltips or in-panel controls. **Win+D** can hide them; use the tray toggle to show them again. At most two displays are targeted.
+
+The city catalog and colors currently live in source: [WorldClock.cs](src/DeskWeave.Core/WorldClock.cs) and [NeonIntrusion.xaml](src/DeskWeave/Theme/NeonIntrusion.xaml). There is no theme or city editor.
+
+## Development
+
+From the repository root on Windows:
+
+```powershell
+dotnet build .\DeskWeave.slnx --configuration Release
+dotnet test .\DeskWeave.slnx --configuration Release --no-build
+```
+
+| Location | Responsibility |
+| --- | --- |
+| [`src/DeskWeave.Core`](src/DeskWeave.Core) | Platform-independent clocks, display selection, quota/status parsers, polling, caching and metric formatting. |
+| [`src/DeskWeave`](src/DeskWeave) | WPF widgets, per-monitor layout, Windows telemetry/interop and tray lifecycle. |
+| [`tests/DeskWeave.Core.Tests`](tests/DeskWeave.Core.Tests) | xUnit coverage for core behavior. |
+| [`tests/DeskWeave.Tests`](tests/DeskWeave.Tests) | STA WPF coverage for clock layouts and integrated widget rendering. |
+
+The tray is the interactive surface; `WidgetHost` owns shared data loops and `WidgetSet` owns each screen's windows. Keep provider parsing in Core and Windows-specific work in the WPF project.
