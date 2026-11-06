@@ -7,10 +7,13 @@ DeskWeave is built with .NET 10 and WPF. It pins borderless, click-through panel
 
 | Widget | Position | Shows |
 | --- | --- | --- |
-| **World clock** | Bottom center | Your local city as a large centered clock, plus 16 cities sorted by UTC offset, with dates, offsets and `+1d`/`-1d` day markers |
+| **World clock** | Bottom center | Your local city as a large centered clock, with exactly 8 cities on each side sorted by UTC offset, dates, offsets and `+1d`/`-1d` day markers |
 | **System monitor** | Top right | CPU (with a 90 s sparkline), RAM, system drive space and I/O, temperatures, network adapter, IP, Wi-Fi signal, up/down rates, and available GPU/NPU telemetry |
 | **GitHub status** | Below the monitor | Overall status, active incidents, components, and scheduled maintenance from the public [githubstatus.com](https://www.githubstatus.com) API |
 | **AI subscriptions** | Top left | Plan, usage meters, consumption and reset times for paid Claude, Codex, GitHub Copilot and Antigravity subscriptions |
+
+The world clock selects from Honolulu, Anchorage, San Francisco, Denver, Chicago, New York, Sao Paulo, London, Zurich, Cairo, Moscow, Dubai, Mumbai, Singapore, Tokyo, Sydney and Auckland, each in a distinct time zone.
+The local city moves to the center when its zone matches; otherwise, the nearest-offset city is omitted so both wings still contain 8 clocks. Equal offsets use the listed order to break ties. Cities are split evenly by count, not by whether they are ahead of or behind local time.
 
 The GitHub status widget polls at most once per minute and honors `Retry-After`.
 It keeps a 24-hour cache in `%LOCALAPPDATA%\DeskWeave` and shows stale data in gray while offline.
@@ -102,6 +105,7 @@ Double-click the tray icon to show or hide the widgets.
   - the widgets;
   - the tray icon.
 - `tests\DeskWeave.Core.Tests`: xUnit tests for the Core library.
+- `tests\DeskWeave.Tests`: STA WPF tests for responsive clock layout and integrated widget rendering.
 
 ## Known limitations
 

@@ -28,22 +28,23 @@ public static class WorldClock
 {
     public static IReadOnlyList<City> DefaultCities { get; } =
     [
+        new("Honolulu", "Pacific/Honolulu"),
+        new("Anchorage", "America/Anchorage"),
         new("San Francisco", "America/Los_Angeles"),
-        new("Seattle", "America/Los_Angeles"),
+        new("Denver", "America/Denver"),
+        new("Chicago", "America/Chicago"),
         new("New York", "America/New_York"),
+        new("Sao Paulo", "America/Sao_Paulo"),
         new("London", "Europe/London"),
-        new("Madrid", "Europe/Madrid"),
-        new("Rome", "Europe/Rome"),
-        new("Prague", "Europe/Prague"),
         new("Zurich", "Europe/Zurich"),
-        new("Warsaw", "Europe/Warsaw"),
-        new("Bucharest", "Europe/Bucharest"),
+        new("Cairo", "Africa/Cairo"),
         new("Moscow", "Europe/Moscow"),
         new("Dubai", "Asia/Dubai"),
         new("Mumbai", "Asia/Kolkata"),
-        new("Bali", "Asia/Makassar"),
+        new("Singapore", "Asia/Singapore"),
         new("Tokyo", "Asia/Tokyo"),
         new("Sydney", "Australia/Sydney"),
+        new("Auckland", "Pacific/Auckland"),
     ];
 
     public static TimeZoneInfo FindZone(string ianaId)
@@ -90,6 +91,14 @@ public static class WorldClock
             .Select(c => Read(c.Name, c.IanaId, FindZone(c.IanaId), instant, localDate))
             .OrderBy(r => r.OffsetMinutes)
             .ToList();
+
+        // An odd remainder can't form equal wings; omit the nearest-offset city
+        // so the remaining clocks favor a wider spread of time zones.
+        if (rows.Count % 2 != 0)
+        {
+            var nearest = rows.MinBy(r => Math.Abs(r.OffsetMinutes - center.OffsetMinutes))!;
+            rows.Remove(nearest);
+        }
 
         var half = rows.Count / 2;
         return new WorldClockSnapshot(center, rows[..half], rows[half..]);
