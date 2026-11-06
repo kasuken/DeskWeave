@@ -2,32 +2,27 @@ using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
 using DeskWeave.Core.AiQuota;
+using DeskWeave.Core.Display;
 using DeskWeave.Core.GitHubStatus;
 using DeskWeave.Services;
-using DeskWeave.Widgets;
 using Microsoft.Win32;
 
 namespace DeskWeave.Desktop;
 
 /// <summary>
-/// Owns the widget windows, their data loops, and the responsive layout on the primary monitor.
-/// Layout is recomputed whenever the resolution, DPI, work area (taskbar) or widget content size changes.
+/// Owns the data loops and one <see cref="WidgetSet"/> per target screen (see <see cref="MonitorMode"/>).
+/// Sampling and polling run once; every set receives the same values. Screens and layout are recomputed whenever
+/// monitors, resolution, DPI, work area (taskbar) or widget content size change.
 /// </summary>
 public sealed class WidgetHost : IDisposable
 {
-    private const double BaseMargin = 24;
-    private const double BaseGap = 12;
-
     private static readonly TimeSpan SampleInterval = TimeSpan.FromSeconds(2);
 
-    private readonly SystemMonitorWidget _monitor = new();
-    private readonly GitHubStatusWidget _github = new();
-    private readonly WorldClockWidget _clock = new();
-    private readonly AiQuotaWidget _quota = new();
-    private readonly DesktopWidgetWindow _monitorWindow;
-    private readonly DesktopWidgetWindow _githubWindow;
-    private readonly DesktopWidgetWindow _clockWindow;
-    private readonly DesktopWidgetWindow _quotaWindow;
+    private static readonly string DataFolder =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskWeave");
+
+    private readonly List<WidgetSet> _sets = [];
+    private readonly DisplaySettingsStore _settings = new(Path.Combine(DataFolder, "settings.json"));
     private readonly CancellationTokenSource _stopping = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
@@ -36,29 +31,47 @@ public sealed class WidgetHost : IDisposable
     {
         Timeout = TimeSpan.FromSeconds(15),
     };
+
+    // Latest data, replayed into widget sets created later (e.g. when a monitor is connected).
+    private SystemSample? _sample;
+    private StatusReading? _reading;
+    private (IReadOnlyList<ProviderQuota> Quotas, bool Refreshing, DateTimeOffset? UpdatedAt)? _quotas;
+
+    private MonitorMode _mode;
     private bool _layoutPending;
     private bool _visible;
 
     public WidgetHost()
     {
-        _monitorWindow = new DesktopWidgetWindow(_monitor, "System");
-        _githubWindow = new DesktopWidgetWindow(_github, "GitHub Status");
-        _clockWindow = new DesktopWidgetWindow(_clock, "World Clock");
-        _quotaWindow = new DesktopWidgetWindow(_quota, "AI Subscriptions");
-
-        foreach (var window in Windows)
-        {
-            window.SizeChanged += (_, _) => ScheduleLayout();
-            window.DpiChanged += (_, _) => ScheduleLayout();
-        }
-
+        _mode = _settings.Load();
         SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
 
     public bool IsVisible => _visible;
 
-    private IEnumerable<DesktopWidgetWindow> Windows => [_monitorWindow, _githubWindow, _clockWindow, _quotaWindow];
+    /// <summary>
+    /// The saved screen preference. When it cannot be honored (secondary disconnected) widgets temporarily use the
+    /// primary screen, but the preference is kept and applies again once the monitor returns.
+    /// </summary>
+    public MonitorMode Mode
+    {
+        get => _mode;
+        set
+        {
+            if (!Enum.IsDefined(value) || value == _mode)
+            {
+                return;
+            }
+
+            _mode = value;
+            _settings.Save(value);
+            Layout();
+        }
+    }
+
+    /// <summary>Whether a mode can be honored with the monitors connected right now.</summary>
+    public static bool IsModeAvailable(MonitorMode mode) => MonitorSelection.IsAvailable(mode, ScreenMetrics.All());
 
     public void Start()
     {
@@ -77,9 +90,9 @@ public sealed class WidgetHost : IDisposable
     public void Hide()
     {
         _visible = false;
-        foreach (var window in Windows)
+        foreach (var set in _sets)
         {
-            window.Hide();
+            set.Hide();
         }
     }
 
@@ -100,73 +113,90 @@ public sealed class WidgetHost : IDisposable
 
     private void Layout()
     {
+        SyncSets(MonitorSelection.Targets(_mode, ScreenMetrics.All()));
         if (!_visible)
         {
             return;
         }
 
-        var screen = ScreenMetrics.Primary();
-        var work = screen.WorkArea;
-        var scale = screen.ContentScale;
-        var margin = BaseMargin * scale;
-        var gap = BaseGap * scale;
-
-        foreach (var window in Windows)
+        foreach (var set in _sets)
         {
-            window.Scale = scale;
-        }
-
-        // World clock: bottom center, wrapping to fit the screen width.
-        _clock.SetAvailableWidth((work.Width - 2 * margin) / scale);
-        var clockSize = _clockWindow.MeasureScaled();
-        var clockTop = work.Bottom - margin - clockSize.Height;
-        Place(_clockWindow, work.Left + (work.Width - clockSize.Width) / 2, clockTop);
-
-        // System monitor: top right.
-        var monitorSize = _monitorWindow.MeasureScaled();
-        var monitorLeft = work.Right - margin - monitorSize.Width;
-        var monitorBottom = work.Top + margin + monitorSize.Height;
-        Place(_monitorWindow, monitorLeft, work.Top + margin);
-
-        // AI subscriptions: top left, hidden when there are no paid plans or it does not fit above the clock.
-        var limit = clockTop - gap;
-        var leftBound = work.Left + margin;
-        var quotaSize = _quotaWindow.MeasureScaled();
-        if (_quota.HasProviders
-            && work.Top + margin + quotaSize.Height <= limit
-            && work.Left + margin + quotaSize.Width + gap <= monitorLeft)
-        {
-            Place(_quotaWindow, work.Left + margin, work.Top + margin);
-            leftBound += quotaSize.Width + gap;
-        }
-        else
-        {
-            _quotaWindow.Hide();
-        }
-
-        // GitHub status: below the monitor when tall enough, beside it on short wide screens, otherwise hidden.
-        var githubSize = _githubWindow.MeasureScaled();
-        if (monitorBottom + gap + githubSize.Height <= limit)
-        {
-            Place(_githubWindow, work.Right - margin - githubSize.Width, monitorBottom + gap);
-        }
-        else if (work.Top + margin + githubSize.Height <= limit && monitorLeft - gap - githubSize.Width >= leftBound)
-        {
-            Place(_githubWindow, monitorLeft - gap - githubSize.Width, work.Top + margin);
-        }
-        else
-        {
-            _githubWindow.Hide();
+            set.Layout();
         }
     }
 
-    private static void Place(DesktopWidgetWindow window, double left, double top)
+    /// <summary>Keeps one widget set per target screen, reusing sets for screens that are still targeted.</summary>
+    private void SyncSets(IReadOnlyList<DisplayInfo> targets)
     {
-        window.Left = Math.Round(left);
-        window.Top = Math.Round(top);
-        if (!window.IsVisible)
+        var remaining = new List<WidgetSet>(_sets);
+        _sets.Clear();
+        foreach (var display in targets)
         {
-            window.Show();
+            var set = remaining.Find(s => string.Equals(s.Display.DeviceName, display.DeviceName, StringComparison.OrdinalIgnoreCase));
+            if (set is not null)
+            {
+                remaining.Remove(set);
+                set.Display = display;
+            }
+            else
+            {
+                set = CreateSet(display);
+            }
+
+            _sets.Add(set);
+        }
+
+        foreach (var set in remaining)
+        {
+            set.Close();
+        }
+    }
+
+    private WidgetSet CreateSet(DisplayInfo display)
+    {
+        var set = new WidgetSet(display, ScheduleLayout);
+        if (_sample is { } sample)
+        {
+            set.Update(sample);
+        }
+
+        if (_reading is { } reading)
+        {
+            set.Update(reading);
+        }
+
+        if (_quotas is { } quotas)
+        {
+            set.Update(quotas.Quotas, quotas.Refreshing, quotas.UpdatedAt);
+        }
+
+        return set;
+    }
+
+    private void Publish(SystemSample sample)
+    {
+        _sample = sample;
+        foreach (var set in _sets)
+        {
+            set.Update(sample);
+        }
+    }
+
+    private void Publish(StatusReading reading)
+    {
+        _reading = reading;
+        foreach (var set in _sets)
+        {
+            set.Update(reading);
+        }
+    }
+
+    private void Publish(IReadOnlyList<ProviderQuota> quotas, bool refreshing, DateTimeOffset? updatedAt)
+    {
+        _quotas = (quotas, refreshing, updatedAt);
+        foreach (var set in _sets)
+        {
+            set.Update(quotas, refreshing, updatedAt);
         }
     }
 
@@ -176,44 +206,39 @@ public sealed class WidgetHost : IDisposable
         using var timer = new PeriodicTimer(SampleInterval);
         do
         {
-            var sample = await Task.Run(sampler.Sample, cancellationToken);
-            _monitor.Update(sample);
+            Publish(await Task.Run(sampler.Sample, cancellationToken));
         }
         while (await timer.WaitForNextTickAsync(cancellationToken));
     }
 
     private async Task RunGitHubStatusAsync(CancellationToken cancellationToken)
     {
-        var cacheFile = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskWeave", "github-status.json");
-        var client = new StatusClient(_http, cacheFile);
-        _github.Update(client.LoadCached());
+        var client = new StatusClient(_http, Path.Combine(DataFolder, "github-status.json"));
+        Publish(client.LoadCached());
         while (!cancellationToken.IsCancellationRequested)
         {
             var (reading, delay) = await client.PollAsync(cancellationToken);
-            _github.Update(reading);
+            Publish(reading);
             await Task.Delay(delay, cancellationToken);
         }
     }
 
     private async Task RunAiQuotaAsync(CancellationToken cancellationToken)
     {
-        var cacheFile = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DeskWeave", "ai-quota.json");
         var service = new AiQuotaService(
             _quotaHttp,
             QuotaSources.Default(() => WindowsCredentialReader.ReadGeneric(WindowsCredentialReader.AntigravityTarget)),
-            cacheFile);
+            Path.Combine(DataFolder, "ai-quota.json"));
         var quotas = service.LoadCached();
-        _quota.Update(quotas, refreshing: true, updatedAt: null);
+        Publish(quotas, refreshing: true, updatedAt: null);
         ScheduleLayout();
 
         using var timer = new PeriodicTimer(AiQuotaService.RefreshInterval);
         do
         {
-            _quota.Update(quotas, refreshing: true, updatedAt: null);
+            Publish(quotas, refreshing: true, updatedAt: null);
             quotas = await Task.Run(() => service.RefreshAsync(cancellationToken), cancellationToken);
-            _quota.Update(quotas, refreshing: false, updatedAt: DateTimeOffset.Now);
+            Publish(quotas, refreshing: false, updatedAt: DateTimeOffset.Now);
             ScheduleLayout();
         }
         while (await timer.WaitForNextTickAsync(cancellationToken));
@@ -238,11 +263,12 @@ public sealed class WidgetHost : IDisposable
         SystemEvents.DisplaySettingsChanged -= OnDisplayChanged;
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
         _stopping.Cancel();
-        foreach (var window in Windows)
+        foreach (var set in _sets)
         {
-            window.Close();
+            set.Close();
         }
 
+        _sets.Clear();
         _http.Dispose();
         _quotaHttp.Dispose();
         _stopping.Dispose();
