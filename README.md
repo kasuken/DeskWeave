@@ -20,11 +20,26 @@ Built with **.NET 10 + WPF**, styled with the Neon Intrusion palette, and inspir
 
 ## Up and running
 
-**Prerequisites:** a Windows 10/11 desktop supported by .NET 10 and the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0). Linux and macOS cannot run the WPF app. Provider CLIs and paid accounts are optional; the other widgets work without them.
+### Portable Windows download
 
-Open PowerShell in this repository's root:
+Download the self-contained Windows x64 build from [GitHub Releases](https://github.com/kasuken/DeskWeave/releases/latest):
+
+1. Download [DeskWeave-0.1.0-win-x64.zip](https://github.com/kasuken/DeskWeave/releases/download/v0.1.0/DeskWeave-0.1.0-win-x64.zip) and [SHA256SUMS.txt](https://github.com/kasuken/DeskWeave/releases/download/v0.1.0/SHA256SUMS.txt).
+2. Compare `Get-FileHash .\DeskWeave-0.1.0-win-x64.zip -Algorithm SHA256` with the checksum file.
+3. Extract the **entire** ZIP to a stable, writable folder, then run `DeskWeave.exe` inside its folder. Keep the bundled files together.
+
+Requires a Windows 10/11 x64 desktop supported by .NET 10. The portable ZIP includes the runtime; no SDK or runtime installation and no administrator access are needed. Linux and macOS cannot run the WPF app. Provider CLIs and paid accounts are optional; the other widgets work without them.
+
+> [!IMPORTANT]
+> The build is unsigned. Windows SmartScreen or antivirus software may warn about an unrecognized app. Only win-x64 is validated; no ARM64 build is provided.
+
+### Run from source
+
+Install the [.NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0), then use PowerShell:
 
 ```powershell
+git clone https://github.com/kasuken/DeskWeave.git
+Set-Location .\DeskWeave
 dotnet run --project .\src\DeskWeave\DeskWeave.csproj --configuration Release
 ```
 
@@ -123,3 +138,12 @@ dotnet test .\DeskWeave.slnx --configuration Release --no-build
 | [`tests/DeskWeave.Tests`](tests/DeskWeave.Tests) | STA WPF coverage for clock layouts and integrated widget rendering. |
 
 The tray is the interactive surface; `WidgetHost` owns shared data loops and `WidgetSet` owns each screen's windows. Keep provider parsing in Core and Windows-specific work in the WPF project.
+
+To reproduce the portable build from the [v0.1.0 source](https://github.com/kasuken/DeskWeave/tree/v0.1.0), use .NET SDK 10.0.403 on Windows x64:
+
+```powershell
+dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.1.0-win-x64
+Compress-Archive -Path .\artifacts\DeskWeave-0.1.0-win-x64 -DestinationPath .\artifacts\DeskWeave-0.1.0-win-x64.zip
+```
+
+See the [changelog](CHANGELOG.md) for user-facing changes. No project license has been selected; public availability does not grant an open-source license.
