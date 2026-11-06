@@ -77,6 +77,13 @@ internal sealed class WidgetSet
 
         // System monitor: top right.
         var monitorSize = _monitorWindow.MeasureScaled();
+        var availableHeight = clockTop - gap - margin;
+        if (monitorSize.Height > availableHeight && availableHeight > 0)
+        {
+            // Read-only widgets cannot scroll. Fit all adapters above the clock instead of clipping.
+            _monitorWindow.Scale = scale * availableHeight / monitorSize.Height;
+            monitorSize = _monitorWindow.MeasureScaled();
+        }
         var monitorLeft = width - margin - monitorSize.Width;
         var monitorBottom = margin + monitorSize.Height;
         Place(_monitorWindow, monitorLeft, margin);

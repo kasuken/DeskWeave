@@ -72,6 +72,34 @@
                 </TextBlock>
             </Grid>
 
+            <ItemsControl x:Name="Accelerators">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Margin="0,0,0,10">
+                            <Rectangle Height="1" Margin="0,0,0,8" Fill="{StaticResource DividerBrush}" />
+                            <TextBlock Style="{StaticResource Label}" Text="{Binding Kind}" />
+                            <TextBlock Style="{StaticResource Value}" Text="{Binding Name}"
+                                       TextWrapping="Wrap" Margin="0,2,0,4" />
+                            <ItemsControl ItemsSource="{Binding Rows}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,1">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Style="{StaticResource Label}" Text="{Binding Label}"
+                                                       TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
+                                            <TextBlock Grid.Column="1" Style="{StaticResource Value}" Text="{Binding Value}" />
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
             <!-- Network -->
             <Rectangle Height="1" Margin="0,0,0,10" Fill="{StaticResource DividerBrush}" />
             <Grid>
