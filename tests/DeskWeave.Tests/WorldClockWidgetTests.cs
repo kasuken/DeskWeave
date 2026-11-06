@@ -1,26 +1,20 @@
-using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
 using DeskWeave.Widgets;
 
 namespace DeskWeave.Tests;
 
-public class WorldClockWidgetTests
+[Collection("WPF")]
+public class WorldClockWidgetTests(WpfFixture fixture)
 {
     [Fact]
     public void SetAvailableWidth_KeepsWingsBalancedAcrossStripWrappedAndStackedLayouts()
     {
-        Exception? failure = null;
-        var thread = new Thread(() =>
+        fixture.Run(() =>
         {
-            var app = new Application();
             WorldClockWidget? widget = null;
             try
             {
-                app.Resources.MergedDictionaries.Add(new ResourceDictionary
-                {
-                    Source = new Uri("/DeskWeave;component/Theme/NeonIntrusion.xaml", UriKind.Relative),
-                });
                 widget = new WorldClockWidget();
                 var left = (ItemsControl)widget.FindName("LeftWing");
                 var right = (ItemsControl)widget.FindName("RightWing");
@@ -51,22 +45,10 @@ public class WorldClockWidgetTests
                     Assert.Equal(stacked ? 2 : 0, Grid.GetRow(right));
                 }
             }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
             finally
             {
                 widget?.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
-                app.Shutdown();
             }
         });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (failure is not null)
-        {
-            ExceptionDispatchInfo.Capture(failure).Throw();
-        }
     }
 }
