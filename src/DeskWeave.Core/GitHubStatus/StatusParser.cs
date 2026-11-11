@@ -26,6 +26,7 @@ public static class StatusParser
         ["degraded_performance"] = ("Degraded", 2),
         ["partial_outage"] = ("Partial outage", 3),
         ["major_outage"] = ("Major outage", 4),
+        ["full_outage"] = ("Major outage", 4),
     };
 
     private static readonly HashSet<string> Indicators = ["none", "minor", "major", "critical", "maintenance"];
@@ -38,9 +39,15 @@ public static class StatusParser
 
     public static StatusSummary Parse(JsonElement root, DateTimeOffset fetchedAt)
     {
+        return Parse(root, root, fetchedAt);
+    }
+
+    public static StatusSummary Parse(JsonElement root, JsonElement componentRoot, DateTimeOffset fetchedAt)
+    {
         if (root.ValueKind != JsonValueKind.Object
             || !root.TryGetProperty("status", out var status) || status.ValueKind != JsonValueKind.Object
-            || !root.TryGetProperty("components", out var components) || components.ValueKind != JsonValueKind.Array)
+            || componentRoot.ValueKind != JsonValueKind.Object
+            || !componentRoot.TryGetProperty("components", out var components) || components.ValueKind != JsonValueKind.Array)
         {
             throw new FormatException("Invalid status summary");
         }
@@ -60,14 +67,15 @@ public static class StatusParser
             }
 
             var raw = String(entry, "status") ?? "unknown";
-            if (raw == "operational" && (IsFalse(entry, "showcase") || IsTrue(entry, "only_show_if_degraded")))
+            if (raw == "operational" && !name.Contains("copilot", StringComparison.OrdinalIgnoreCase)
+                && (IsFalse(entry, "showcase") || IsTrue(entry, "only_show_if_degraded")))
             {
                 continue;
             }
 
             var known = States.TryGetValue(raw, out var state);
             var position = entry.TryGetProperty("position", out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var pos) ? pos : 999;
-            rows.Add(new ServiceComponent(name, known ? raw : "unknown", known ? state.Label : "Unknown", known ? state.Severity : 5, position));
+            rows.Add(new ServiceComponent(name, known ? raw : "unknown", known ? state.Label : "Unknown", known ? state.Severity : 1, position));
         }
 
         if (rows.Count == 0)
@@ -78,6 +86,7 @@ public static class StatusParser
         rows = [.. rows.OrderByDescending(r => r.Severity).ThenBy(r => r.Position)];
 
         var incidents = new List<Incident>();
+        var incidentIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var entry in Array(root, "incidents"))
         {
             var phase = String(entry, "status");
@@ -86,8 +95,15 @@ public static class StatusParser
                 continue;
             }
 
+            var name = Fallback(Text(entry, "name"), "Active incident");
+            var id = String(entry, "id");
+            if (id is not null && !incidentIds.Add(id))
+            {
+                continue;
+            }
+
             incidents.Add(new Incident(
-                Fallback(Text(entry, "name"), "Active incident"),
+                name,
                 Capitalize(Fallback(Text(entry, "status", 30), "investigating").Replace('_', ' ')),
                 Fallback(Text(entry, "impact", 20), "minor")));
         }
@@ -112,10 +128,28 @@ public static class StatusParser
         var description = Fallback(Text(status, "description"), "Status unavailable");
 
         // Never turn an unrecognized component state into a green all-clear.
-        if (indicator == "none" && rows.Any(r => r.Status == "unknown"))
+        var affected = rows.FirstOrDefault(r => r.Status != "unknown" && r.Severity > 0);
+        if (indicator == "none" && affected is not null)
+        {
+            indicator = affected.Status switch
+            {
+                "under_maintenance" => "maintenance",
+                "degraded_performance" => "minor",
+                "partial_outage" => "major",
+                "major_outage" => "critical",
+                "full_outage" => "critical",
+                _ => "unknown",
+            };
+            description = affected.Label;
+        }
+        else if (indicator == "none" && rows.Any(r => r.Status == "unknown"))
         {
             indicator = "unknown";
             description = "Some service statuses unavailable";
+        }
+        else if (indicator == "unknown")
+        {
+            description = "Service status unknown";
         }
 
         return new StatusSummary(description, indicator, rows, incidents, maintenance, fetchedAt);

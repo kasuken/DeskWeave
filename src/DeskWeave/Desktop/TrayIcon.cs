@@ -1,6 +1,9 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.ComponentModel;
+using System.Diagnostics;
 using DeskWeave.Core.Display;
+using DeskWeave.Core.GitHubStatus;
 using Forms = System.Windows.Forms;
 using static DeskWeave.Interop.NativeMethods;
 
@@ -45,12 +48,53 @@ public sealed class TrayIcon : IDisposable
             item.Click += (_, _) => _host.Mode = mode;
         }
 
+        var statusMenu = new Forms.ToolStripMenuItem("Service status");
+        var statusWarning = new Forms.ToolStripMenuItem { Enabled = false, Visible = false };
+        statusMenu.DropDownItems.Add(statusWarning);
+        var providerItems = new List<(StatusProvider Provider, Forms.ToolStripMenuItem Item)>();
+        foreach (var provider in StatusProviders.All)
+        {
+            var item = new Forms.ToolStripMenuItem($"Show {provider.Name}");
+            item.Click += (_, _) =>
+            {
+                try
+                {
+                    _host.SetStatusEnabled(provider.Id, !_host.IsStatusEnabled(provider.Id));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    Forms.MessageBox.Show($"Could not save service status settings: {ex.Message}",
+                        "DeskWeave", Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Error);
+                }
+            };
+            providerItems.Add((provider, item));
+            statusMenu.DropDownItems.Add(item);
+        }
+
+        statusMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        foreach (var provider in StatusProviders.All)
+        {
+            statusMenu.DropDownItems.Add($"Open {provider.Name} status page", null, (_, _) =>
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo(provider.StatusPage) { UseShellExecute = true });
+                }
+                catch (Exception ex) when (ex is Win32Exception or InvalidOperationException)
+                {
+                    Forms.MessageBox.Show($"Could not open the status page: {ex.Message}",
+                        "DeskWeave", Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Error);
+                }
+            });
+        }
+
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(new Forms.ToolStripLabel("DeskWeave") { Enabled = false });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(toggle);
         menu.Items.Add("Refresh layout", null, (_, _) => _host.ScheduleLayout());
         menu.Items.Add(startup);
+        menu.Items.Add(statusMenu);
         menu.Items.Add(new Forms.ToolStripSeparator());
         foreach (var (_, item) in screens)
         {
@@ -69,6 +113,12 @@ public sealed class TrayIcon : IDisposable
                 item.Checked = mode == _host.Mode;
                 item.Enabled = WidgetHost.IsModeAvailable(mode);
             }
+            foreach (var (provider, item) in providerItems)
+            {
+                item.Checked = _host.IsStatusEnabled(provider.Id);
+            }
+            statusWarning.Text = _host.StatusSettingsWarning ?? string.Empty;
+            statusWarning.Visible = _host.StatusSettingsWarning is not null;
         };
 
         _icon = new Forms.NotifyIcon

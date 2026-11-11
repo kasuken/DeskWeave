@@ -23,6 +23,7 @@ public sealed class WidgetHost : IDisposable
 
     private readonly List<WidgetSet> _sets = [];
     private readonly DisplaySettingsStore _settings = new(Path.Combine(DataFolder, "settings.json"));
+    private readonly StatusSettingsStore _statusSettings = new(Path.Combine(DataFolder, "service-status-settings.json"));
     private readonly CancellationTokenSource _stopping = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
@@ -34,21 +35,72 @@ public sealed class WidgetHost : IDisposable
 
     // Latest data, replayed into widget sets created later (e.g. when a monitor is connected).
     private SystemSample? _sample;
-    private StatusReading? _reading;
+    private readonly Dictionary<string, StatusClient> _statusClients = [];
+    private readonly Dictionary<string, ProviderStatusReading> _statusReadings = [];
+    private readonly Dictionary<string, CancellationTokenSource> _statusCancellation = [];
+    private readonly Dictionary<string, Task> _statusTasks = [];
+    private readonly Dictionary<string, DateTimeOffset> _statusNotBefore = [];
+    private readonly HashSet<string> _enabledStatus;
     private (IReadOnlyList<ProviderQuota> Quotas, bool Refreshing, DateTimeOffset? UpdatedAt)? _quotas;
 
     private MonitorMode _mode;
+    private bool _started;
     private bool _layoutPending;
     private bool _visible;
 
     public WidgetHost()
     {
         _mode = _settings.Load();
+        var statusSettings = _statusSettings.Load();
+        _enabledStatus = new HashSet<string>(statusSettings.Enabled, StringComparer.Ordinal);
+        StatusSettingsWarning = statusSettings.Warning;
+        foreach (var provider in StatusProviders.All)
+        {
+            var file = provider.Id == StatusProviders.GitHub ? "github-status.json" : $"{provider.Id}-status.json";
+            _statusClients.Add(provider.Id, new StatusClient(_http, Path.Combine(DataFolder, file),
+                provider.Endpoints, provider.Id == StatusProviders.OpenAI
+                    ? OpenAiStatusParser.Parse
+                    : (bodies, fetchedAt) => StatusParser.Parse(bodies[0], fetchedAt)));
+        }
         SystemEvents.DisplaySettingsChanged += OnDisplayChanged;
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
     }
 
     public bool IsVisible => _visible;
+    public string? StatusSettingsWarning { get; private set; }
+
+    public bool IsStatusEnabled(string id) => _enabledStatus.Contains(id);
+
+    public void SetStatusEnabled(string id, bool enabled)
+    {
+        var provider = StatusProviders.All.FirstOrDefault(p => p.Id == id)
+            ?? throw new ArgumentException("Unknown service status provider.", nameof(id));
+        if (_enabledStatus.Contains(id) == enabled)
+        {
+            return;
+        }
+
+        var selected = new HashSet<string>(_enabledStatus, StringComparer.Ordinal);
+        if (enabled) selected.Add(id);
+        else selected.Remove(id);
+        _statusSettings.Save(selected);
+        StatusSettingsWarning = null;
+        if (enabled)
+        {
+            _enabledStatus.Add(id);
+            if (_started) StartStatusProvider(provider);
+        }
+        else
+        {
+            _enabledStatus.Remove(id);
+            if (_statusCancellation.Remove(id, out var cancellation))
+            {
+                cancellation.Cancel();
+            }
+            _statusReadings.Remove(id);
+            PublishStatuses();
+        }
+    }
 
     /// <summary>
     /// The saved screen preference. When it cannot be honored (secondary disconnected) widgets temporarily use the
@@ -76,8 +128,13 @@ public sealed class WidgetHost : IDisposable
     public void Start()
     {
         Show();
+        _started = true;
         _ = RunSystemMonitorAsync(_stopping.Token);
-        _ = RunGitHubStatusAsync(_stopping.Token);
+        foreach (var provider in StatusProviders.All.Where(p => _enabledStatus.Contains(p.Id)))
+        {
+            StartStatusProvider(provider);
+        }
+        PublishStatuses();
         _ = RunAiQuotaAsync(_stopping.Token);
     }
 
@@ -160,10 +217,7 @@ public sealed class WidgetHost : IDisposable
             set.Update(sample);
         }
 
-        if (_reading is { } reading)
-        {
-            set.Update(reading);
-        }
+        set.Update(CurrentStatuses());
 
         if (_quotas is { } quotas)
         {
@@ -182,13 +236,18 @@ public sealed class WidgetHost : IDisposable
         }
     }
 
-    private void Publish(StatusReading reading)
+    private IReadOnlyList<ProviderStatusReading> CurrentStatuses() =>
+        StatusProviders.All.Where(p => _enabledStatus.Contains(p.Id) && _statusReadings.ContainsKey(p.Id))
+            .Select(p => _statusReadings[p.Id]).ToArray();
+
+    private void PublishStatuses()
     {
-        _reading = reading;
+        var readings = CurrentStatuses();
         foreach (var set in _sets)
         {
-            set.Update(reading);
+            set.Update(readings);
         }
+        ScheduleLayout();
     }
 
     private void Publish(IReadOnlyList<ProviderQuota> quotas, bool refreshing, DateTimeOffset? updatedAt)
@@ -211,16 +270,74 @@ public sealed class WidgetHost : IDisposable
         while (await timer.WaitForNextTickAsync(cancellationToken));
     }
 
-    private async Task RunGitHubStatusAsync(CancellationToken cancellationToken)
+    private void StartStatusProvider(StatusProvider provider)
     {
-        var client = new StatusClient(_http, Path.Combine(DataFolder, "github-status.json"));
-        Publish(client.LoadCached());
-        while (!cancellationToken.IsCancellationRequested)
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+        _statusCancellation[provider.Id] = cancellation;
+        var previous = _statusTasks.GetValueOrDefault(provider.Id, Task.CompletedTask);
+        _statusTasks[provider.Id] = RunStatusProviderAsync(provider, previous, cancellation);
+    }
+
+    private async Task RunStatusProviderAsync(StatusProvider provider, Task previous, CancellationTokenSource cancellation)
+    {
+        var token = cancellation.Token;
+        try
         {
-            var (reading, delay) = await client.PollAsync(cancellationToken);
-            Publish(reading);
-            await Task.Delay(delay, cancellationToken);
+            await previous;
+            token.ThrowIfCancellationRequested();
+            var client = _statusClients[provider.Id];
+            PublishStatus(provider, client.LoadCached());
+            var lastOnline = false;
+            while (true)
+            {
+                if (_statusNotBefore.TryGetValue(provider.Id, out var notBefore))
+                {
+                    while (DateTimeOffset.UtcNow < notBefore)
+                    {
+                        var remaining = notBefore - DateTimeOffset.UtcNow;
+                        if (remaining <= TimeSpan.Zero) break;
+                        if (!lastOnline && _statusReadings.TryGetValue(provider.Id, out var cached)
+                            && cached.Reading.Summary is { } summary)
+                        {
+                            var untilExpiry = summary.FetchedAt + StatusClient.CacheLifetime - DateTimeOffset.UtcNow;
+                            if (untilExpiry <= TimeSpan.Zero)
+                            {
+                                PublishStatus(provider, client.Publish(online: false));
+                                continue;
+                            }
+                            if (untilExpiry < remaining) remaining = untilExpiry;
+                        }
+                        await Task.Delay(remaining < TimeSpan.FromMinutes(1) ? remaining : TimeSpan.FromMinutes(1), token);
+                        token.ThrowIfCancellationRequested();
+                        if (!lastOnline)
+                        {
+                            PublishStatus(provider, client.Publish(online: false));
+                        }
+                    }
+                }
+
+                _statusNotBefore[provider.Id] = DateTimeOffset.UtcNow + StatusClient.MinimumInterval;
+                var (reading, delay) = await client.PollAsync(token);
+                var now = DateTimeOffset.UtcNow;
+                _statusNotBefore[provider.Id] = delay > DateTimeOffset.MaxValue - now ? DateTimeOffset.MaxValue : now + delay;
+                token.ThrowIfCancellationRequested();
+                lastOnline = reading.Online;
+                PublishStatus(provider, reading);
+            }
         }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+        }
+        finally
+        {
+            cancellation.Dispose();
+        }
+    }
+
+    private void PublishStatus(StatusProvider provider, StatusReading reading)
+    {
+        _statusReadings[provider.Id] = new ProviderStatusReading(provider.Id, provider.Name, reading);
+        PublishStatuses();
     }
 
     private async Task RunAiQuotaAsync(CancellationToken cancellationToken)

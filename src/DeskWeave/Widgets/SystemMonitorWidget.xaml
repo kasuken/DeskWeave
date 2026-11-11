@@ -41,35 +41,6 @@
             </Grid>
             <TextBlock x:Name="RamDetail" Margin="52,0,0,10" Style="{StaticResource Label}" Text="N/A" />
 
-            <StackPanel Margin="0,0,0,10">
-                <Rectangle Height="1" Margin="0,0,0,8" Fill="{StaticResource DividerBrush}" />
-                <TextBlock Style="{StaticResource Label}" Text="TOP PROCESSES" Margin="0,0,0,4" />
-                <ItemsControl x:Name="ProcessSections">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Margin="0,0,0,4">
-                                <TextBlock Style="{StaticResource Label}" Text="{Binding Label}" />
-                                <ItemsControl ItemsSource="{Binding Rows}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition />
-                                                    <ColumnDefinition Width="Auto" />
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Style="{StaticResource Label}" Text="{Binding Name}"
-                                                           TextTrimming="CharacterEllipsis" Margin="0,0,8,0" />
-                                                <TextBlock Grid.Column="1" Style="{StaticResource Value}" Text="{Binding Value}" />
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
-
             <!-- Disk -->
             <Grid Margin="0,0,0,2">
                 <Grid.ColumnDefinitions>

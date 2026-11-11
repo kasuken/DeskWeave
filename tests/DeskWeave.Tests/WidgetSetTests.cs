@@ -13,7 +13,7 @@ namespace DeskWeave.Tests;
 public class WidgetSetTests(WpfFixture fixture)
 {
     [Fact]
-    public void Layout_SharedDataAcrossTwoSets_PreservesQuotaAndFitsAcceleratorsAboveClock()
+    public void Layout_SharedDataAcrossTwoSets_PreservesQuotaAndFitsProcessPanelAboveClock()
     {
         fixture.Run(() =>
         {
@@ -52,7 +52,7 @@ public class WidgetSetTests(WpfFixture fixture)
                 }
 
                 var windows = Application.Current.Windows.OfType<DesktopWidgetWindow>().ToArray();
-                Assert.Equal(8, windows.Length);
+                Assert.Equal(10, windows.Length);
                 foreach (var window in windows.Where(w => w.Widget is AiQuotaWidget))
                     Assert.True(window.IsVisible);
                 foreach (var monitor in windows.Where(w => w.Widget is SystemMonitorWidget))
@@ -63,34 +63,54 @@ public class WidgetSetTests(WpfFixture fixture)
                     Assert.Contains(card.Rows, r => r.Label == "Load" && r.Value == "0%");
                     Assert.DoesNotContain(card.Rows, r => r.Label == "Temperature");
 
-                    var processSections = (ItemsControl)monitor.Widget.FindName("ProcessSections");
+                }
+
+                foreach (var processWindow in windows.Where(w => w.Widget is TopProcessesWidget))
+                {
+                    Assert.True(processWindow.IsVisible);
+                    var processSections = (ItemsControl)processWindow.Widget.FindName("ProcessSections");
                     Assert.Equal(["cpu-first", "memory-first", "gpu-second"],
-                        Assert.IsType<SystemMonitorWidget.ProcessSection>(processSections.Items[0]).Rows
+                        Assert.IsType<TopProcessesWidget.ProcessSection>(processSections.Items[0]).Rows
                             .Select(row => row.Name));
                     Assert.Equal(["memory-first", "gpu-second", "cpu-third"],
-                        Assert.IsType<SystemMonitorWidget.ProcessSection>(processSections.Items[1]).Rows
+                        Assert.IsType<TopProcessesWidget.ProcessSection>(processSections.Items[1]).Rows
                             .Select(row => row.Name));
                     Assert.Equal(["memory-first", "gpu-second", "cpu-third"],
-                        Assert.IsType<SystemMonitorWidget.ProcessSection>(processSections.Items[2]).Rows
+                        Assert.IsType<TopProcessesWidget.ProcessSection>(processSections.Items[2]).Rows
                             .Select(row => row.Name));
                 }
 
-                // Force the merged fitting path with many live adapters on a shorter work area.
+                // Force the constrained layout with many live adapters on a shorter work area.
                 sets[0].Display = display with { WorkArea = new PixelRect(0, 0, 1280, 720) };
                 sets[0].Update(sample with { Accelerators = Enumerable.Repeat(idle, 8).ToArray() });
                 sets[0].Update(Array.Empty<ProviderQuota>(), false, DateTimeOffset.UtcNow);
                 Application.Current.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
                 sets[0].Layout();
                 var firstMonitor = firstWindows.Single(w => w.Widget is SystemMonitorWidget);
+                var firstProcesses = firstWindows.Single(w => w.Widget is TopProcessesWidget);
                 var firstClock = firstWindows.Single(w => w.Widget is WorldClockWidget);
                 Assert.True(firstMonitor.Scale < sets[0].Display.ContentScale,
                     $"Monitor scale {firstMonitor.Scale}; content scale {sets[0].Display.ContentScale}");
                 var margin = 24 * sets[0].Display.ContentScale;
                 var gap = 12 * sets[0].Display.ContentScale;
-                var totalHeight = firstMonitor.MeasureScaled().Height + firstClock.MeasureScaled().Height + 2 * margin + gap;
+                var totalHeight = firstMonitor.MeasureScaled().Height + firstProcesses.MeasureScaled().Height
+                    + firstClock.MeasureScaled().Height + 2 * margin + 2 * gap;
                 Assert.True(totalHeight <= sets[0].Display.WorkHeight + 1,
                     $"Widgets need {totalHeight} DIPs; work height {sets[0].Display.WorkHeight}");
+                Assert.True(firstProcesses.IsVisible);
+                Assert.Equal(firstMonitor.Scale, firstProcesses.Scale);
+                Assert.Equal(firstMonitor.MeasureScaled().Width, firstProcesses.MeasureScaled().Width, 6);
+                Application.Current.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                Assert.Equal(firstMonitor.ActualWidth, firstProcesses.ActualWidth, 6);
                 Assert.False(firstWindows.Single(w => w.Widget is AiQuotaWidget).IsVisible);
+
+                sets[0].Display = display;
+                sets[0].Update(sample);
+                Application.Current.Dispatcher.Invoke(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                sets[0].Layout();
+                Assert.Equal(display.ContentScale, firstMonitor.Scale);
+                Assert.Equal(firstMonitor.Scale, firstProcesses.Scale);
+                Assert.Equal(firstMonitor.MeasureScaled().Width, firstProcesses.MeasureScaled().Width, 6);
             }
             finally
             {

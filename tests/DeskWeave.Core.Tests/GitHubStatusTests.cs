@@ -52,6 +52,24 @@ public class GitHubStatusTests
     }
 
     [Fact]
+    public void Parse_PreservesCopilotComponentAndDeduplicatesIncidentsById()
+    {
+        const string json = """
+            { "status": { "indicator": "minor", "description": "Service disruption" },
+              "components": [{ "name": "Copilot", "status": "operational", "showcase": false }],
+              "incidents": [
+                { "id": "i1", "name": "Incident", "status": "investigating" },
+                { "id": "i1", "name": "Incident", "status": "investigating" },
+                { "id": "i2", "name": "Incident", "status": "identified" }
+              ] }
+            """;
+
+        var summary = StatusParser.Parse(json, Now);
+        Assert.Equal("Copilot", Assert.Single(summary.Components).Name);
+        Assert.Equal(2, summary.Incidents.Count);
+    }
+
+    [Fact]
     public void Parse_NeverReportsAllClearWithUnknownComponents()
     {
         const string json = """
@@ -63,6 +81,49 @@ public class GitHubStatusTests
 
         Assert.Equal("unknown", summary.Indicator);
         Assert.Equal("Unknown", summary.Components[0].Label);
+    }
+
+    [Theory]
+    [InlineData("degraded_performance", "minor", "Degraded")]
+    [InlineData("partial_outage", "major", "Partial outage")]
+    [InlineData("major_outage", "critical", "Major outage")]
+    [InlineData("under_maintenance", "maintenance", "Maintenance")]
+    [InlineData("new_status", "unknown", "Some service statuses unavailable")]
+    public void Parse_ContradictoryAllClearDoesNotMaskComponentStatus(string status, string indicator, string description)
+    {
+        var json = $$"""
+            { "status": { "indicator": "none", "description": "All Systems Operational" },
+              "components": [ { "name": "Claude Code", "status": "{{status}}" } ] }
+            """;
+        var summary = StatusParser.Parse(json, Now);
+        Assert.Equal(indicator, summary.Indicator);
+        Assert.Equal(description, summary.Description);
+    }
+
+    [Fact]
+    public void Parse_UnknownOverallIndicatorDoesNotDisplayAnAllClear()
+    {
+        const string json = """
+            { "status": { "indicator": "new_indicator", "description": "All Systems Operational" },
+              "components": [ { "name": "Claude API", "status": "operational" } ] }
+            """;
+        var summary = StatusParser.Parse(json, Now);
+        Assert.Equal("unknown", summary.Indicator);
+        Assert.Equal("Service status unknown", summary.Description);
+    }
+
+    [Fact]
+    public void Parse_UnknownComponentDoesNotHideKnownOutage()
+    {
+        const string json = """
+            { "status": { "indicator": "none", "description": "All Systems Operational" },
+              "components": [ { "name": "Unknown", "status": "new_status" },
+                              { "name": "API", "status": "major_outage" } ] }
+            """;
+        var summary = StatusParser.Parse(json, Now);
+        Assert.Equal("critical", summary.Indicator);
+        Assert.Equal("API", summary.Components[0].Name);
+        Assert.Equal("Unknown", summary.Components[1].Label);
     }
 
     [Theory]

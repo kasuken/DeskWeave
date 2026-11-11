@@ -12,7 +12,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyTitle>DeskWeave</AssemblyTitle>
     <Product>DeskWeave</Product>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <!-- DPI awareness is declared in app.manifest for WPF; the WinForms-only advice does not apply. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
   </PropertyGroup>

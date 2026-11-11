@@ -18,10 +18,12 @@ internal sealed class WidgetSet
     private const double BaseGap = 12;
 
     private readonly SystemMonitorWidget _monitor = new();
+    private readonly TopProcessesWidget _processes = new();
     private readonly GitHubStatusWidget _github = new();
     private readonly WorldClockWidget _clock = new();
     private readonly AiQuotaWidget _quota = new();
     private readonly DesktopWidgetWindow _monitorWindow;
+    private readonly DesktopWidgetWindow _processesWindow;
     private readonly DesktopWidgetWindow _githubWindow;
     private readonly DesktopWidgetWindow _clockWindow;
     private readonly DesktopWidgetWindow _quotaWindow;
@@ -30,6 +32,7 @@ internal sealed class WidgetSet
     {
         Display = display;
         _monitorWindow = new DesktopWidgetWindow(_monitor, "System");
+        _processesWindow = new DesktopWidgetWindow(_processes, "Top Processes");
         _githubWindow = new DesktopWidgetWindow(_github, "GitHub Status");
         _clockWindow = new DesktopWidgetWindow(_clock, "World Clock");
         _quotaWindow = new DesktopWidgetWindow(_quota, "AI Subscriptions");
@@ -43,11 +46,16 @@ internal sealed class WidgetSet
 
     public DisplayInfo Display { get; set; }
 
-    private IEnumerable<DesktopWidgetWindow> Windows => [_monitorWindow, _githubWindow, _clockWindow, _quotaWindow];
+    private IEnumerable<DesktopWidgetWindow> Windows =>
+        [_monitorWindow, _processesWindow, _githubWindow, _clockWindow, _quotaWindow];
 
-    public void Update(SystemSample sample) => _monitor.Update(sample);
+    public void Update(SystemSample sample)
+    {
+        _monitor.Update(sample);
+        _processes.Update(sample.Processes);
+    }
 
-    public void Update(StatusReading reading) => _github.Update(reading);
+    public void Update(IReadOnlyList<ProviderStatusReading> readings) => _github.Update(readings);
 
     public void Update(IReadOnlyList<ProviderQuota> quotas, bool refreshing, DateTimeOffset? updatedAt) =>
         _quota.Update(quotas, refreshing, updatedAt);
@@ -78,7 +86,18 @@ internal sealed class WidgetSet
         // System monitor: top right.
         var monitorSize = _monitorWindow.MeasureScaled();
         var availableHeight = clockTop - gap - margin;
-        if (monitorSize.Height > availableHeight && availableHeight > 0)
+        var processesSize = _processesWindow.MeasureScaled();
+        var monitorHeightBudget = availableHeight - gap - processesSize.Height;
+        var showProcessesBelowMonitor = monitorHeightBudget > 0;
+        if (showProcessesBelowMonitor && monitorSize.Height > monitorHeightBudget)
+        {
+            var stackScale = scale * (availableHeight - gap) / (monitorSize.Height + processesSize.Height);
+            _monitorWindow.Scale = stackScale;
+            _processesWindow.Scale = stackScale;
+            monitorSize = _monitorWindow.MeasureScaled();
+            processesSize = _processesWindow.MeasureScaled();
+        }
+        else if (!showProcessesBelowMonitor && monitorSize.Height > availableHeight && availableHeight > 0)
         {
             // Read-only widgets cannot scroll. Fit all adapters above the clock instead of clipping.
             _monitorWindow.Scale = scale * availableHeight / monitorSize.Height;
@@ -87,6 +106,18 @@ internal sealed class WidgetSet
         var monitorLeft = width - margin - monitorSize.Width;
         var monitorBottom = margin + monitorSize.Height;
         Place(_monitorWindow, monitorLeft, margin);
+
+        var processesBottom = monitorBottom;
+        if (showProcessesBelowMonitor)
+        {
+            var processesTop = monitorBottom + gap;
+            Place(_processesWindow, width - margin - processesSize.Width, processesTop);
+            processesBottom = processesTop + processesSize.Height;
+        }
+        else
+        {
+            _processesWindow.Hide();
+        }
 
         // AI subscriptions: top left, hidden when there are no paid plans or it does not fit above the clock.
         var limit = clockTop - gap;
@@ -102,11 +133,11 @@ internal sealed class WidgetSet
             _quotaWindow.Hide();
         }
 
-        // GitHub status: below the monitor when tall enough, beside it on short wide screens, otherwise hidden.
+        // GitHub status: below both right-side panels when tall enough, beside them on short wide screens.
         var githubSize = _githubWindow.MeasureScaled();
-        if (monitorBottom + gap + githubSize.Height <= limit)
+        if (processesBottom + gap + githubSize.Height <= limit)
         {
-            Place(_githubWindow, width - margin - githubSize.Width, monitorBottom + gap);
+            Place(_githubWindow, width - margin - githubSize.Width, processesBottom + gap);
         }
         else if (margin + githubSize.Height <= limit && monitorLeft - gap - githubSize.Width >= leftBound)
         {

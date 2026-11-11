@@ -2,7 +2,7 @@
 
 **Your desktop, tuned for AI-native engineering.**
 
-AI subscription quotas. Machine health. GitHub status. World time. Native Windows widgets that keep your working context in view, without another dashboard tab.
+AI subscription quotas. Machine health. Service status. World time. Native Windows widgets that keep your working context in view, without another dashboard tab.
 
 ![DeskWeave on an actual Full HD secondary monitor: AI subscription quotas at top left, CPU, GPU and NPU metrics and GitHub status at right, and 17 clocks along the bottom.](docs/assets/deskweave-full-hd.png)
 
@@ -12,7 +12,7 @@ AI subscription quotas. Machine health. GitHub status. World time. Native Window
 
 - **See your AI headroom.** Recognized paid Claude, Codex, GitHub Copilot and Antigravity plans, with available usage meters and reset times.
 - **Know what your machine is doing.** CPU history, RAM, top processes by CPU/memory/GPU, system-drive space and I/O, network rates, and GPU/NPU telemetry where Windows exposes it.
-- **Check GitHub before debugging your setup.** Public service health, affected components, active incidents and scheduled maintenance.
+- **Check service health before debugging your setup.** Public GitHub, Claude and OpenAI status, affected components, active incidents and scheduled maintenance.
 - **Work across time zones.** Your local clock takes center stage, with eight cities on each side, UTC offsets and day-change markers.
 - **Put a spare screen to work.** Choose primary, secondary or both. Borderless, click-through panels stay above the wallpaper and behind your apps.
 
@@ -24,8 +24,8 @@ Built with **.NET 10 + WPF**, styled with the Neon Intrusion palette, and inspir
 
 Download the self-contained Windows x64 build from [GitHub Releases](https://github.com/kasuken/DeskWeave/releases/latest):
 
-1. Download [DeskWeave-0.1.0-win-x64.zip](https://github.com/kasuken/DeskWeave/releases/download/v0.1.0/DeskWeave-0.1.0-win-x64.zip) and [SHA256SUMS.txt](https://github.com/kasuken/DeskWeave/releases/download/v0.1.0/SHA256SUMS.txt).
-2. Compare `Get-FileHash .\DeskWeave-0.1.0-win-x64.zip -Algorithm SHA256` with the checksum file.
+1. Download [DeskWeave-0.2.0-win-x64.zip](https://github.com/kasuken/DeskWeave/releases/download/v0.2.0/DeskWeave-0.2.0-win-x64.zip) and [SHA256SUMS.txt](https://github.com/kasuken/DeskWeave/releases/download/v0.2.0/SHA256SUMS.txt).
+2. Compare `Get-FileHash .\DeskWeave-0.2.0-win-x64.zip -Algorithm SHA256` with the checksum file.
 3. Extract the **entire** ZIP to a stable, writable folder, then run `DeskWeave.exe` inside its folder. Keep the bundled files together.
 
 Requires a Windows 10/11 x64 desktop supported by .NET 10. The portable ZIP includes the runtime; no SDK or runtime installation and no administrator access are needed. Linux and macOS cannot run the WPF app. Provider CLIs and paid accounts are optional; the other widgets work without them.
@@ -62,7 +62,21 @@ Screen selection survives restarts. Disconnecting the selected secondary tempora
 
 Double-click the icon to show/hide widgets. The menu also provides **Show widgets**, **Refresh layout**, **Start with Windows** and **Exit**. Startup registration writes only a per-user Windows Run entry pointing to the current executable; keep that build in a stable location if you enable it.
 
-Each screen uses its own DPI and work area. Layout updates when resolution, scaling, taskbar or connected displays change. Clocks wrap or stack on narrower screens; the system panel scales down to fit. GitHub status may move beside it, and status or quota panels hide when space is insufficient.
+Each screen uses its own DPI and work area. Layout updates when resolution, scaling, taskbar or connected displays change. Clocks wrap or stack on narrower screens; the system monitor and Top Processes scale together to keep their widths aligned above the clock, with Top Processes below the monitor when space allows. Service status may move beside the monitor, and panels hide when space is insufficient.
+
+## Service status
+
+The **Service status** tray menu enables or disables GitHub, Claude and OpenAI independently; all three are enabled initially. It also opens each provider's official status page. Selection persists across restarts and is independent of subscription sign-in. Disabled providers are not polled.
+
+The panel shows provider-reported health, not a test of your account or connection. GitHub's feed supplies GitHub components, including **Copilot** and **Copilot AI Model Providers** where available. Claude's feed covers its public components, including Claude Code and the Claude API. OpenAI's component feed covers its reported API, ChatGPT and Codex components; names may be repeated because that feed does not include group labels. Active incidents and scheduled maintenance are distinct; long lists are summarized.
+
+| Provider | Public, unauthenticated sources |
+| --- | --- |
+| GitHub | [Statuspage summary](https://www.githubstatus.com/api/v2/summary.json) |
+| Claude | [Statuspage summary](https://status.claude.com/api/v2/summary.json) |
+| OpenAI | [Status](https://status.openai.com/api/v2/status.json), [components](https://status.openai.com/api/v2/components.json), and [incident.io widget summary](https://status.openai.com/api/v1/summary) |
+
+Each enabled provider is refreshed at most once per minute, honoring `Retry-After`; an OpenAI refresh consists of three requests. OpenAI's widget feed includes published ongoing incidents and maintenance, not unpublished updates; all three OpenAI feeds must succeed for a fresh reading. Provider failures are isolated. A last-known reading is marked offline and expires after 24 hours; with no recent data the provider is unavailable, not healthy. Unknown provider states are shown as unknown. Status pages and APIs can change or cease to be available.
 
 ## Connect your AI subscriptions
 
@@ -84,7 +98,7 @@ Quota refreshes run every **five minutes**. Missing credentials and free or unre
 
 ## Data, privacy and offline behavior
 
-Machine metrics and clocks are calculated locally. **DeskWeave is not offline-only:** it contacts the public [GitHub Status API](https://www.githubstatus.com/api/v2/summary.json) at most once per minute, honoring `Retry-After`, and contacts the quota endpoints above when credentials are available.
+Machine metrics and clocks are calculated locally. **DeskWeave is not offline-only:** it contacts the enabled public status feeds described above and contacts the quota endpoints above when credentials are available.
 
 Direct quota requests send bearer tokens only to the allowed provider HTTPS hosts; redirects are disabled. Those tokens are not logged or cached. For Copilot, DeskWeave invokes `gh` and reads its response rather than retrieving the GitHub token.
 
@@ -93,7 +107,9 @@ Local files live in `%LOCALAPPDATA%\DeskWeave`:
 | File | Contents |
 | --- | --- |
 | `settings.json` | Saved monitor mode: `Primary`, `Secondary` or `Both`. Prefer changing it through the tray. |
+| `service-status-settings.json` | Enabled public status providers. Prefer changing them through the tray. |
 | `github-status.json` | Cached public service status. |
+| `anthropic-status.json`, `openai-status.json` | Cached public Claude and OpenAI service status. |
 | `ai-quota.json` | Display data: plan labels, usage limits, reset times and freshness/status metadata; no credentials. |
 
 Status and quota caches retain last-known data for up to **24 hours**. Offline readings are explicitly marked and gray, not presented as fresh. Without recent data, status reports unavailable and quota providers can disappear.
@@ -110,7 +126,7 @@ GPU/NPU readings depend on the Windows version, hardware and driver. No extra mo
 
 - Sampling runs every two seconds; adapter discovery refreshes every 30 seconds. DXCore identifies adapters, Windows performance counters supply load/memory, and read-only WDDM queries supply optional sensors.
 - Overall utilization is the busiest physical engine, not the sum of overlapping engine percentages. New/reset counters can make a reading temporarily unknown.
-- The system panel lists the top three processes independently by CPU, working-set memory and GPU. Process CPU is normalized to total logical-processor capacity; GPU usage follows the busiest engine. Windows does not expose meaningful per-thread memory or GPU attribution.
+- The separate Top Processes panel lists the top three processes independently by CPU, working-set memory and GPU, with color-coded rankings and comparison bars. Bars are relative to the leading process in each section, not overall resource capacity; the numbers show actual usage. Process CPU is normalized to total logical-processor capacity; GPU usage follows the busiest engine. Windows does not expose meaningful per-thread memory or GPU attribution.
 - Dedicated and shared memory are separate. Shared capacity is a limit, not reserved VRAM; integrated-GPU dedicated capacity is not necessarily discrete VRAM.
 - NPU identity does not guarantee usable utilization counters. Only explicitly identified NPUs receive that label; other compute-only devices are labeled Accelerator.
 - Temperature, fan RPM and **relative power percentage** appear only when supported. Relative power is not watts. Sensor queries use physical node 0 on linked adapters.
@@ -140,11 +156,11 @@ dotnet test .\DeskWeave.slnx --configuration Release --no-build
 
 The tray is the interactive surface; `WidgetHost` owns shared data loops and `WidgetSet` owns each screen's windows. Keep provider parsing in Core and Windows-specific work in the WPF project.
 
-To reproduce the portable build from the [v0.1.0 source](https://github.com/kasuken/DeskWeave/tree/v0.1.0), use .NET SDK 10.0.403 on Windows x64:
+To reproduce the portable build from the [v0.2.0 source](https://github.com/kasuken/DeskWeave/tree/v0.2.0), use .NET SDK 10.0.404 on Windows x64:
 
 ```powershell
-dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.1.0-win-x64
-Compress-Archive -Path .\artifacts\DeskWeave-0.1.0-win-x64 -DestinationPath .\artifacts\DeskWeave-0.1.0-win-x64.zip
+dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.2.0-win-x64
+Compress-Archive -Path .\artifacts\DeskWeave-0.2.0-win-x64 -DestinationPath .\artifacts\DeskWeave-0.2.0-win-x64.zip
 ```
 
 `--self-contained true` includes the .NET runtime in the publish folder. Package the entire folder in the release ZIP, not just `DeskWeave.exe`.

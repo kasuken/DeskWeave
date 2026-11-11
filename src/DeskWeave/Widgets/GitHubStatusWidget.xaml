@@ -4,62 +4,190 @@
              Width="340">
     <Border Style="{StaticResource WidgetPanel}">
         <StackPanel>
-            <TextBlock Style="{StaticResource Heading}" Text="GITHUB STATUS" Margin="0,0,0,6" />
-            <TextBlock x:Name="Overall" Style="{StaticResource Value}" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,10"
-                       TextWrapping="Wrap" TextTrimming="None">
-                <Run x:Name="OverallDot" Text="●" /> <Run x:Name="OverallText" Text="Checking…" />
-            </TextBlock>
+            <Grid Margin="0,0,0,12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Style="{StaticResource Heading}" Text="SERVICE STATUS" />
+                <TextBlock x:Name="ProviderCount" Grid.Column="1" Style="{StaticResource Label}" />
+            </Grid>
 
-            <StackPanel x:Name="IncidentsPanel" Visibility="Collapsed" Margin="0,0,0,10">
-                <ItemsControl x:Name="Incidents">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Border BorderBrush="{StaticResource OrangeBrush}" BorderThickness="2,0,0,0" Padding="8,2,0,2" Margin="0,0,0,6">
-                                <StackPanel>
-                                    <TextBlock Style="{StaticResource Value}" Text="{Binding Name}" TextWrapping="Wrap" TextTrimming="None" />
-                                    <TextBlock Style="{StaticResource Label}" Text="{Binding Status}" Foreground="{StaticResource OrangeBrush}" />
-                                </StackPanel>
-                            </Border>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <TextBlock x:Name="MoreIncidents" Style="{StaticResource Label}" Visibility="Collapsed" />
-            </StackPanel>
+            <TextBlock x:Name="EmptyState"
+                       Style="{StaticResource Label}"
+                       Text="No providers selected"
+                       Visibility="Collapsed" />
 
-            <ItemsControl x:Name="Components">
+            <ItemsControl x:Name="Providers">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="0,0,0,4">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition />
-                                <ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Style="{StaticResource Value}" Text="{Binding Name}" Margin="0,0,8,0" />
-                            <TextBlock Grid.Column="1" Style="{StaticResource Label}" Foreground="{Binding Brush}">
-                                <Run Text="●" /> <Run Text="{Binding Label, Mode=OneWay}" />
-                            </TextBlock>
-                        </Grid>
+                        <StackPanel Margin="0,0,0,9">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Style="{StaticResource Value}"
+                                           FontWeight="SemiBold"
+                                           Text="{Binding Name}"
+                                           Foreground="{Binding NameBrush}"
+                                           HorizontalAlignment="Stretch"
+                                           Margin="0,0,10,0" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                                    <Ellipse Width="6" Height="6" Fill="{Binding StatusBrush}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                    <TextBlock Style="{StaticResource Value}"
+                                               Text="{Binding Status}"
+                                               Foreground="{Binding StatusBrush}" />
+                                </StackPanel>
+                            </Grid>
+                            <TextBlock Style="{StaticResource Label}"
+                                       Text="{Binding Freshness}"
+                                       Foreground="{Binding FreshnessBrush}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Margin="0,2,0,0" />
+                            <TextBlock Style="{StaticResource Label}"
+                                       Text="{Binding Detail}"
+                                       Foreground="{Binding DetailBrush}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Visibility="{Binding DetailVisibility}"
+                                       Margin="0,3,0,0" />
+                            <TextBlock Style="{StaticResource Label}"
+                                       Text="{Binding MoreIncidents}"
+                                       TextTrimming="CharacterEllipsis"
+                                       Visibility="{Binding OtherIncidentOverflowVisibility}" />
+                            <StackPanel Visibility="{Binding OtherMaintenanceVisibility}" Margin="0,5,0,0">
+                                <TextBlock Style="{StaticResource Label}"
+                                           Text="MAINTENANCE"
+                                           Foreground="{Binding MaintenanceHeadingBrush}"
+                                           Margin="0,0,0,2" />
+                                <ItemsControl ItemsSource="{Binding Maintenance}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <TextBlock Style="{StaticResource Value}"
+                                                           Text="{Binding Name}"
+                                                           Foreground="{Binding NameBrush}" />
+                                                <TextBlock Style="{StaticResource Label}"
+                                                           Text="{Binding Detail}"
+                                                           Foreground="{Binding Brush}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <TextBlock Style="{StaticResource Label}"
+                                           Text="{Binding MoreMaintenance}"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="{Binding MoreMaintenanceVisibility}" />
+                            </StackPanel>
+                        </StackPanel>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <StackPanel x:Name="MaintenancePanel" Visibility="Collapsed" Margin="0,6,0,0">
-                <TextBlock Style="{StaticResource Label}" Foreground="{StaticResource BlueBrush}" Text="MAINTENANCE" Margin="0,0,0,4" />
-                <ItemsControl x:Name="Maintenance">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Style="{StaticResource Label}" TextWrapping="Wrap" Margin="0,0,0,4">
-                                <Run Text="{Binding Name, Mode=OneWay}" Foreground="{StaticResource ForegroundBrush}" />
-                                <LineBreak />
-                                <Run Text="{Binding Detail, Mode=OneWay}" />
-                            </TextBlock>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
+            <TextBlock x:Name="ProviderOverflow"
+                       Style="{StaticResource Label}"
+                       Visibility="Collapsed"
+                       Margin="0,0,0,5" />
 
-            <Rectangle Height="1" Margin="0,8,0,8" Fill="{StaticResource DividerBrush}" />
-            <TextBlock x:Name="Footer" Style="{StaticResource Label}" Text="githubstatus.com" TextWrapping="Wrap" />
+            <StackPanel x:Name="GitHubDetails" Visibility="Collapsed">
+                <Rectangle Height="1" Margin="0,2,0,10" Fill="{StaticResource DividerBrush}" />
+                <StackPanel Visibility="{Binding ComponentsVisibility}">
+                    <TextBlock Style="{StaticResource Label}"
+                               Text="GITHUB COMPONENTS"
+                               Foreground="{Binding ComponentsHeadingBrush}"
+                               Margin="0,0,0,6" />
+                    <ItemsControl ItemsSource="{Binding Components}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid Margin="0,0,0,3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Style="{StaticResource Value}"
+                                               Text="{Binding Name}"
+                                               Foreground="{Binding NameBrush}"
+                                               HorizontalAlignment="Stretch"
+                                               Margin="0,0,8,0" />
+                                    <TextBlock Grid.Column="1"
+                                               Style="{StaticResource Label}"
+                                               Text="{Binding Label}"
+                                               Foreground="{Binding Brush}"
+                                               TextTrimming="CharacterEllipsis"
+                                               MaxWidth="100" />
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Style="{StaticResource Label}"
+                               Text="{Binding MoreComponents}"
+                               TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding MoreComponentsVisibility}" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding IncidentsVisibility}" Margin="0,8,0,0">
+                    <TextBlock Style="{StaticResource Label}"
+                               Text="ACTIVE INCIDENTS"
+                               Foreground="{Binding IncidentsHeadingBrush}"
+                               Margin="0,0,0,4" />
+                    <ItemsControl ItemsSource="{Binding Incidents}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{Binding Brush}"
+                                        BorderThickness="2,0,0,0"
+                                        Padding="8,1,0,1"
+                                        Margin="0,0,0,4">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource Value}"
+                                                   Text="{Binding Name}"
+                                                   Foreground="{Binding NameBrush}" />
+                                        <TextBlock Style="{StaticResource Label}"
+                                                   Text="{Binding Detail}"
+                                                   Foreground="{Binding Brush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Style="{StaticResource Label}"
+                               Text="{Binding MoreIncidents}"
+                               TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding MoreIncidentsVisibility}" />
+                </StackPanel>
+
+                <StackPanel Visibility="{Binding MaintenanceVisibility}" Margin="0,8,0,0">
+                    <TextBlock Style="{StaticResource Label}"
+                               Text="MAINTENANCE"
+                               Foreground="{Binding MaintenanceHeadingBrush}"
+                               Margin="0,0,0,4" />
+                    <ItemsControl ItemsSource="{Binding Maintenance}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{Binding Brush}"
+                                        BorderThickness="2,0,0,0"
+                                        Padding="8,1,0,1"
+                                        Margin="0,0,0,4">
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource Value}"
+                                                   Text="{Binding Name}"
+                                                   Foreground="{Binding NameBrush}" />
+                                        <TextBlock Style="{StaticResource Label}"
+                                                   Text="{Binding Detail}"
+                                                   Foreground="{Binding Brush}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Style="{StaticResource Label}"
+                               Text="{Binding MoreMaintenance}"
+                               TextTrimming="CharacterEllipsis"
+                               Visibility="{Binding MoreMaintenanceVisibility}" />
+                </StackPanel>
+            </StackPanel>
         </StackPanel>
     </Border>
 </UserControl>
