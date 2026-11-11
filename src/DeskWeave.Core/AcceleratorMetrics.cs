@@ -60,6 +60,35 @@ public static partial class AcceleratorMetrics
         return new EngineReading(adapter.Value, physical, engine, match.Groups[3].Value, percent);
     }
 
+    /// <summary>Extracts the process ID from a GPU engine performance-counter instance.</summary>
+    public static int? ParseProcessId(string instance)
+    {
+        var match = ProcessPattern().Match(instance);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var processId) && processId > 0
+            ? processId
+            : null;
+    }
+
+    /// <summary>Uses the busiest physical engine for each process, matching overall accelerator utilization.</summary>
+    public static IReadOnlyDictionary<int, double?> AggregateProcessUtilization(
+        IEnumerable<(int ProcessId, EngineReading Reading)> readings)
+    {
+        var result = new Dictionary<int, double?>();
+        foreach (var process in readings.GroupBy(r => r.ProcessId))
+        {
+            var engines = process.GroupBy(r => (r.Reading.Adapter, r.Reading.Physical, r.Reading.Engine)).ToArray();
+            if (engines.SelectMany(e => e).Any(r => r.Reading.Percent is not { } percent || !double.IsFinite(percent) || percent < 0))
+            {
+                result[process.Key] = null;
+                continue;
+            }
+
+            result[process.Key] = engines.Max(e => Math.Min(100, e.Sum(r => r.Reading.Percent!.Value)));
+        }
+
+        return result;
+    }
+
     /// <summary>
     /// Sum processes on the same physical engine, then take the busiest engine.
     /// Different engines can execute concurrently and must not be added together.
@@ -80,6 +109,9 @@ public static partial class AcceleratorMetrics
 
     [GeneratedRegex(@"(?:^|_)luid_0x([0-9a-f]{8})_0x([0-9a-f]{8})(?:_|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex AdapterPattern();
+
+    [GeneratedRegex(@"(?:^|_)pid_(\d+)(?:_|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ProcessPattern();
 
     [GeneratedRegex(@"_phys_(\d+)_eng_(\d+)_engtype_(.*)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex EnginePattern();

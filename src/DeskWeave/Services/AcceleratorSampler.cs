@@ -14,6 +14,9 @@ public sealed class AcceleratorSampler
     private TimeSpan? _discoveredAt;
     private readonly Dictionary<string, string> _failures = [];
 
+    public IReadOnlyDictionary<int, double?> ProcessUtilization { get; private set; } = new Dictionary<int, double?>();
+    public bool ProcessUtilizationAvailable { get; private set; }
+
     /// <summary>Samples all discoverable hardware adapters. Failures are nullable and retried on subsequent polls.</summary>
     public IReadOnlyList<AcceleratorSample> Sample()
     {
@@ -23,13 +26,22 @@ public sealed class AcceleratorSampler
             _discoveredAt = _clock.Elapsed;
         }
 
-        if (_adapters.Count == 0) return [];
+        if (_adapters.Count == 0)
+        {
+            ProcessUtilizationAvailable = false;
+            ProcessUtilization = new Dictionary<int, double?>();
+            return [];
+        }
+
         var engineData = ReadCategory("GPU Engine");
         var memoryData = ReadCategory("GPU Adapter Memory");
         var readings = new List<EngineReading>();
+        var processReadings = new List<(int ProcessId, EngineReading Reading)>();
         var next = new Dictionary<string, CounterSample>(StringComparer.OrdinalIgnoreCase);
         var calculationFailed = false;
-        if (engineData?["Utilization Percentage"] is { } utilization)
+        var utilization = engineData?["Utilization Percentage"];
+        ProcessUtilizationAvailable = utilization is not null;
+        if (utilization is not null)
         {
             foreach (InstanceData instance in utilization.Values)
             {
@@ -54,9 +66,15 @@ public sealed class AcceleratorSampler
                     }
                 }
                 // An unprimed/reset process makes its whole engine unknown, not artificially idle.
-                readings.Add(identity with { Percent = percent });
+                var reading = identity with { Percent = percent };
+                readings.Add(reading);
+                if (AcceleratorMetrics.ParseProcessId(instance.InstanceName) is { } processId)
+                {
+                    processReadings.Add((processId, reading));
+                }
             }
         }
+        ProcessUtilization = AcceleratorMetrics.AggregateProcessUtilization(processReadings);
         if (!calculationFailed) _failures.Remove("GPU Engine calculation");
         _previousEngines.Clear();
         foreach (var pair in next) _previousEngines.Add(pair.Key, pair.Value);

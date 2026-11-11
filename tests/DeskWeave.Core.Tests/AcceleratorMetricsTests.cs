@@ -27,6 +27,13 @@ public class AcceleratorMetricsTests
     public void Invalid_engine_readings_are_unavailable(string name, double value) =>
         Assert.Null(AcceleratorMetrics.ParseEngine(name, value));
 
+    [Theory]
+    [InlineData("pid_42_luid_0x00000000_0x000114F2_phys_0_eng_1_engtype_3D", 42)]
+    [InlineData("pid_0_luid_0x00000000_0x000114F2_phys_0_eng_1_engtype_3D", null)]
+    [InlineData("invalid", null)]
+    public void Process_ids_are_read_from_gpu_engine_instances(string name, int? expected) =>
+        Assert.Equal(expected, AcceleratorMetrics.ParseProcessId(name));
+
     [Fact]
     public void Processes_sum_per_engine_but_overlapping_engines_use_busiest()
     {
@@ -55,6 +62,31 @@ public class AcceleratorMetricsTests
     {
         var (total, _) = AcceleratorMetrics.Aggregate([new(Gpu, 0, 0, "3D", 90), new(Gpu, 0, 0, "3D", 30)]);
         Assert.Equal(100, total);
+    }
+
+    [Fact]
+    public void Process_utilization_sums_the_same_engine_and_uses_the_busiest_engine()
+    {
+        var readings = new (int ProcessId, EngineReading Reading)[]
+        {
+            (12, new(Gpu, 0, 0, "3D", 30)), (12, new(Gpu, 0, 0, "3D", 40)),
+            (12, new(Gpu, 0, 1, "Compute", 65)), (12, new(Gpu, 0, 2, "Compute", 50)),
+            (34, new(Gpu, 0, 0, "3D", 80)),
+        };
+
+        var result = AcceleratorMetrics.AggregateProcessUtilization(readings);
+
+        Assert.Equal(70, result[12]);
+        Assert.Equal(80, result[34]);
+    }
+
+    [Fact]
+    public void An_unprimed_process_engine_stays_unavailable()
+    {
+        var result = AcceleratorMetrics.AggregateProcessUtilization(
+            [(12, new EngineReading(Gpu, 0, 0, "3D", null))]);
+
+        Assert.Null(result[12]);
     }
 
     [Fact]

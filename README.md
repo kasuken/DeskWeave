@@ -11,7 +11,7 @@ AI subscription quotas. Machine health. GitHub status. World time. Native Window
 ## Less tab-switching. More context.
 
 - **See your AI headroom.** Recognized paid Claude, Codex, GitHub Copilot and Antigravity plans, with available usage meters and reset times.
-- **Know what your machine is doing.** CPU history, RAM, system-drive space and I/O, network rates, and GPU/NPU telemetry where Windows exposes it.
+- **Know what your machine is doing.** CPU history, RAM, top processes by CPU/memory/GPU, system-drive space and I/O, network rates, and GPU/NPU telemetry where Windows exposes it.
 - **Check GitHub before debugging your setup.** Public service health, affected components, active incidents and scheduled maintenance.
 - **Work across time zones.** Your local clock takes center stage, with eight cities on each side, UTC offsets and day-change markers.
 - **Put a spare screen to work.** Choose primary, secondary or both. Borderless, click-through panels stay above the wallpaper and behind your apps.
@@ -110,6 +110,7 @@ GPU/NPU readings depend on the Windows version, hardware and driver. No extra mo
 
 - Sampling runs every two seconds; adapter discovery refreshes every 30 seconds. DXCore identifies adapters, Windows performance counters supply load/memory, and read-only WDDM queries supply optional sensors.
 - Overall utilization is the busiest physical engine, not the sum of overlapping engine percentages. New/reset counters can make a reading temporarily unknown.
+- The system panel lists the top three processes independently by CPU, working-set memory and GPU. Process CPU is normalized to total logical-processor capacity; GPU usage follows the busiest engine. Windows does not expose meaningful per-thread memory or GPU attribution.
 - Dedicated and shared memory are separate. Shared capacity is a limit, not reserved VRAM; integrated-GPU dedicated capacity is not necessarily discrete VRAM.
 - NPU identity does not guarantee usable utilization counters. Only explicitly identified NPUs receive that label; other compute-only devices are labeled Accelerator.
 - Temperature, fan RPM and **relative power percentage** appear only when supported. Relative power is not watts. Sensor queries use physical node 0 on linked adapters.
@@ -145,5 +146,7 @@ To reproduce the portable build from the [v0.1.0 source](https://github.com/kasu
 dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.1.0-win-x64
 Compress-Archive -Path .\artifacts\DeskWeave-0.1.0-win-x64 -DestinationPath .\artifacts\DeskWeave-0.1.0-win-x64.zip
 ```
+
+`--self-contained true` includes the .NET runtime in the publish folder. Package the entire folder in the release ZIP, not just `DeskWeave.exe`.
 
 See the [changelog](CHANGELOG.md) for user-facing changes. No project license has been selected; public availability does not grant an open-source license.

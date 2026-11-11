@@ -21,7 +21,7 @@ public partial class SystemMonitorWidget : UserControl
 
     public void Update(SystemSample sample)
     {
-        Threads.Text = $"{sample.Threads} threads";
+        LogicalProcessors.Text = $"{sample.LogicalProcessors} logical CPUs";
 
         SetMeter(CpuMeter, CpuValue, sample.Cpu);
         _cpuHistory.Add(sample.Cpu);
@@ -31,6 +31,7 @@ public partial class SystemMonitorWidget : UserControl
         RamDetail.Text = sample.Memory is { } memory
             ? $"{Formatting.Bytes(memory.Used)} / {Formatting.Bytes(memory.Total)}"
             : Formatting.Unavailable;
+        ProcessSections.ItemsSource = ProcessSectionsFor(sample.Processes);
 
         if (sample.Disk is { } disk)
         {
@@ -64,6 +65,33 @@ public partial class SystemMonitorWidget : UserControl
     }
 
     public sealed record AcceleratorCard(string Name, string Kind, IReadOnlyList<AcceleratorRow> Rows);
+    public sealed record ProcessSection(string Label, IReadOnlyList<ProcessRow> Rows);
+    public sealed record ProcessRow(string Name, string Value);
+
+    private static IReadOnlyList<ProcessSection> ProcessSectionsFor(IReadOnlyList<ProcessUsage> processes)
+    {
+        var gpu = processes.Where(p => p.GpuPercent is > 0)
+            .OrderByDescending(p => p.GpuPercent);
+        var gpuUnavailable = processes.All(p => p.GpuPercent is null);
+        return
+        [
+            new("CPU", Top(processes.Where(p => p.CpuPercent.HasValue)
+                .OrderByDescending(p => p.CpuPercent), p => Formatting.Percent(p.CpuPercent), "Sampling")),
+            new("MEMORY", Top(processes.Where(p => p.WorkingSet.HasValue)
+                .OrderByDescending(p => p.WorkingSet), p => Formatting.Bytes(p.WorkingSet), Formatting.Unavailable)),
+            new("GPU", Top(gpu, p => Formatting.Percent(p.GpuPercent),
+                gpuUnavailable ? Formatting.Unavailable : "No active GPU load")),
+        ];
+    }
+
+    private static IReadOnlyList<ProcessRow> Top(
+        IEnumerable<ProcessUsage> ordered,
+        Func<ProcessUsage, string> format,
+        string emptyLabel)
+    {
+        var rows = ordered.Take(3).Select(p => new ProcessRow(p.Name, format(p))).ToArray();
+        return rows.Length > 0 ? rows : [new ProcessRow(emptyLabel, string.Empty)];
+    }
 
     private void SetMeter(ProgressBar meter, TextBlock value, double? percent)
     {

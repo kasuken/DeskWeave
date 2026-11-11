@@ -2,6 +2,13 @@
 
 All notable changes to DeskWeave are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [Unreleased]
+
+### Added
+
+- **Per-process resource rankings** - Show the top three processes independently by CPU, working-set memory and GPU utilization.
+- **Bundled runtime release guidance** - Package the complete self-contained publish folder, including the .NET runtime, in the release ZIP.
+
 ## [0.1.0] - 2026-11-06
 
 ### Added

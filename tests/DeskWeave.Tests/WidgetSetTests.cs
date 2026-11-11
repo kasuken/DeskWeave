@@ -33,7 +33,16 @@ public class WidgetSetTests(WpfFixture fixture)
                 };
                 var sample = new SystemSample(0, 8, new MemorySample(1024, 2048, 50), null, null, null,
                     new NetworkSample(false, "Network", "Disconnected", "", "", null, null, null),
-                    [idle, unavailable]);
+                    [idle, unavailable])
+                {
+                    Processes =
+                    [
+                        new(1, "cpu-first", 12, 10_000, 0),
+                        new(2, "memory-first", 9, 40_000, 9),
+                        new(3, "gpu-second", 7, 30_000, 5),
+                        new(4, "cpu-third", 6, 20_000, 1),
+                    ],
+                };
                 ProviderQuota[] quotas = [new(QuotaProviders.Copilot, "GitHub Copilot", "Pro", [], null, DateTimeOffset.UtcNow)];
                 foreach (var set in sets)
                 {
@@ -53,6 +62,17 @@ public class WidgetSetTests(WpfFixture fixture)
                     Assert.Equal("Idle GPU", card.Name);
                     Assert.Contains(card.Rows, r => r.Label == "Load" && r.Value == "0%");
                     Assert.DoesNotContain(card.Rows, r => r.Label == "Temperature");
+
+                    var processSections = (ItemsControl)monitor.Widget.FindName("ProcessSections");
+                    Assert.Equal(["cpu-first", "memory-first", "gpu-second"],
+                        Assert.IsType<SystemMonitorWidget.ProcessSection>(processSections.Items[0]).Rows
+                            .Select(row => row.Name));
+                    Assert.Equal(["memory-first", "gpu-second", "cpu-third"],
+                        Assert.IsType<SystemMonitorWidget.ProcessSection>(processSections.Items[1]).Rows
+                            .Select(row => row.Name));
+                    Assert.Equal(["memory-first", "gpu-second", "cpu-third"],
+                        Assert.IsType<SystemMonitorWidget.ProcessSection>(processSections.Items[2]).Rows
+                            .Select(row => row.Name));
                 }
 
                 // Force the merged fitting path with many live adapters on a shorter work area.
