@@ -43,7 +43,16 @@ public class WidgetSetTests(WpfFixture fixture)
                         new(4, "cpu-third", 6, 20_000, 1),
                     ],
                 };
-                ProviderQuota[] quotas = [new(QuotaProviders.Copilot, "GitHub Copilot", "Pro", [], null, DateTimeOffset.UtcNow)];
+                ProviderQuota[] quotas =
+                [
+                    new(QuotaProviders.Copilot, "GitHub Copilot", "Pro",
+                        Enumerable.Range(0, 8)
+                            .Select(index => new QuotaLimit(
+                                $"Limit {index}", index * 5, DateTimeOffset.UtcNow.AddHours(5), Identity: $"limit-{index}"))
+                            .ToArray(),
+                        null,
+                        DateTimeOffset.UtcNow),
+                ];
                 foreach (var set in sets)
                 {
                     set.Update(sample);
@@ -54,7 +63,13 @@ public class WidgetSetTests(WpfFixture fixture)
                 var windows = Application.Current.Windows.OfType<DesktopWidgetWindow>().ToArray();
                 Assert.Equal(10, windows.Length);
                 foreach (var window in windows.Where(w => w.Widget is AiQuotaWidget))
+                {
                     Assert.True(window.IsVisible);
+                    var providers = (ItemsControl)window.Widget.FindName("Providers");
+                    var card = Assert.IsType<AiQuotaWidget.ProviderCard>(Assert.Single(providers.Items));
+                    Assert.Equal(3, card.Limits.Count);
+                    Assert.Equal("5 more limits", card.OverflowSummary);
+                }
                 foreach (var monitor in windows.Where(w => w.Widget is SystemMonitorWidget))
                 {
                     var cards = (ItemsControl)monitor.Widget.FindName("Accelerators");

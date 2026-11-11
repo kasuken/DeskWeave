@@ -50,6 +50,7 @@ public sealed class TrayIcon : IDisposable
 
         var statusMenu = new Forms.ToolStripMenuItem("Service status");
         var statusWarning = new Forms.ToolStripMenuItem { Enabled = false, Visible = false };
+        var quotaHistoryWarning = new Forms.ToolStripMenuItem { Enabled = false, Visible = false };
         statusMenu.DropDownItems.Add(statusWarning);
         var providerItems = new List<(StatusProvider Provider, Forms.ToolStripMenuItem Item)>();
         foreach (var provider in StatusProviders.All)
@@ -95,6 +96,7 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add("Refresh layout", null, (_, _) => _host.ScheduleLayout());
         menu.Items.Add(startup);
         menu.Items.Add(statusMenu);
+        menu.Items.Add(quotaHistoryWarning);
         menu.Items.Add(new Forms.ToolStripSeparator());
         foreach (var (_, item) in screens)
         {
@@ -119,6 +121,8 @@ public sealed class TrayIcon : IDisposable
             }
             statusWarning.Text = _host.StatusSettingsWarning ?? string.Empty;
             statusWarning.Visible = _host.StatusSettingsWarning is not null;
+            quotaHistoryWarning.Text = _host.QuotaHistoryWarning ?? string.Empty;
+            quotaHistoryWarning.Visible = _host.QuotaHistoryWarning is not null;
         };
 
         _icon = new Forms.NotifyIcon

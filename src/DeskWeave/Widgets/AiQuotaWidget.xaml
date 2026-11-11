@@ -44,10 +44,14 @@
                                                          Visibility="{Binding MeterVisibility}" />
                                             <TextBlock Style="{StaticResource Label}" Text="{Binding Detail}" TextWrapping="Wrap" Margin="0,3,0,0"
                                                        Visibility="{Binding DetailVisibility}" />
+                                            <TextBlock Style="{StaticResource Label}" Text="{Binding Forecast}" TextWrapping="Wrap"
+                                                       Margin="0,3,0,0" Visibility="{Binding ForecastVisibility}" />
                                         </StackPanel>
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
+                            <TextBlock Style="{StaticResource Label}" Text="{Binding OverflowSummary}"
+                                       Visibility="{Binding OverflowVisibility}" />
                             <TextBlock Style="{StaticResource Label}" Text="{Binding LastKnown}" Visibility="{Binding LastKnownVisibility}" />
                         </StackPanel>
                     </DataTemplate>

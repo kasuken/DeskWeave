@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -100,7 +101,7 @@ public static class QuotaParsers
         {
             if (document.RootElement.TryGet(out var window, key) && window.ValueKind == JsonValueKind.Object)
             {
-                limits.Add(new QuotaLimit(label, Clamp(window.Num("utilization")), window.Time("resets_at")));
+                limits.Add(new QuotaLimit(label, Clamp(window.Num("utilization")), window.Time("resets_at"), Identity: key));
             }
         }
 
@@ -138,7 +139,11 @@ public static class QuotaParsers
             if (root.TryGet(out var window, "rate_limit", key) && window.ValueKind == JsonValueKind.Object)
             {
                 DateTimeOffset? reset = window.Num("reset_at") is { } seconds ? DateTimeOffset.FromUnixTimeSeconds((long)seconds) : null;
-                limits.Add(new QuotaLimit(WindowLabel(window.Num("limit_window_seconds")), Clamp(window.Num("used_percent")), reset));
+                var windowSeconds = window.Num("limit_window_seconds");
+                var identity = windowSeconds is { } length && double.IsFinite(length) && length > 0
+                    ? $"{key}:{length.ToString("0", CultureInfo.InvariantCulture)}"
+                    : key;
+                limits.Add(new QuotaLimit(WindowLabel(windowSeconds), Clamp(window.Num("used_percent")), reset, Identity: identity));
             }
         }
 
@@ -158,15 +163,20 @@ public static class QuotaParsers
         var reset = root.Time("quota_reset_date_utc") ?? root.Time("quota_reset_date");
         var limits = new List<QuotaLimit>();
 
-        if ((root.TryGet(out var premium, "quota_snapshots", "premium_interactions")
-             || root.TryGet(out premium, "quota_snapshots", "premium_requests"))
+        var premiumKey = root.TryGet(out var premium, "quota_snapshots", "premium_interactions")
+            ? "premium_interactions"
+            : root.TryGet(out premium, "quota_snapshots", "premium_requests")
+                ? "premium_requests"
+                : null;
+        if (premiumKey is not null
             && premium.ValueKind == JsonValueKind.Object
             && premium.Bool("has_quota") != false)
         {
             var label = premium.Bool("token_based_billing") == true ? "AI credits" : "Premium requests";
+            var identity = $"{premiumKey}:{(premium.Bool("token_based_billing") == true ? "credits" : "requests")}";
             if (premium.Bool("unlimited") == true)
             {
-                limits.Add(new QuotaLimit(label, null, null, Unlimited: true));
+                limits.Add(new QuotaLimit(label, null, null, Unlimited: true, Identity: identity));
             }
             else
             {
@@ -178,7 +188,7 @@ public static class QuotaParsers
                     ? $"{c.ToString("N0", CultureInfo.InvariantCulture)} / {entitlement.Value.ToString("N0", CultureInfo.InvariantCulture)}"
                     : null;
                 var used100 = premium.Num("percent_remaining") is { } left ? Clamp(100 - left) : null;
-                limits.Add(new QuotaLimit(label, used100, reset, detail));
+                limits.Add(new QuotaLimit(label, used100, reset, detail, Identity: identity));
             }
         }
         else
@@ -187,7 +197,7 @@ public static class QuotaParsers
             {
                 if (root.TryGet(out var snapshot, "quota_snapshots", key) && snapshot.Bool("unlimited") == true)
                 {
-                    limits.Add(new QuotaLimit(label, null, null, Unlimited: true));
+                    limits.Add(new QuotaLimit(label, null, null, Unlimited: true, Identity: key));
                 }
             }
         }
@@ -255,6 +265,7 @@ public static class QuotaParsers
             throw new FormatException("Unrecognized Antigravity quota summary");
         }
 
+        var identities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (group, buckets) in groups)
         {
             if (buckets.ValueKind != JsonValueKind.Array)
@@ -291,7 +302,19 @@ public static class QuotaParsers
                 }
 
                 var label = group is { Length: > 0 } ? $"{group} / {name}" : name;
-                limits.Add(new QuotaLimit(label, Clamp((1 - fraction.Value) * 100), reset));
+                var stableKey = bucket.Str("bucketId") is { } bucketId
+                    ? $"bucket:{bucketId}"
+                    : bucket.Str("window") is { } window
+                        ? $"window:{window}"
+                        : null;
+                var identity = stableKey is null ? null : "antigravity:" + Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(stableKey)));
+                if (identity is not null && !identities.Add(identity))
+                {
+                    identity = null;
+                }
+
+                limits.Add(new QuotaLimit(label, Clamp((1 - fraction.Value) * 100), reset, Identity: identity));
             }
         }
 

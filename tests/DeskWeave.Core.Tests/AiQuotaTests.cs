@@ -42,7 +42,13 @@ public class AiQuotaTests
             """{"five_hour":{"utilization":42.5,"resets_at":"2026-11-05T17:00:00Z"},"seven_day":{"utilization":null,"resets_at":null}}""");
 
         Assert.Collection(limits,
-            l => { Assert.Equal("5h", l.Label); Assert.Equal(42.5, l.UsedPercent); Assert.Equal(Now.AddHours(2), l.ResetsAt); },
+            l =>
+            {
+                Assert.Equal("5h", l.Label);
+                Assert.Equal(42.5, l.UsedPercent);
+                Assert.Equal(Now.AddHours(2), l.ResetsAt);
+                Assert.Equal("five_hour", l.Identity);
+            },
             l => { Assert.Equal("7d", l.Label); Assert.Null(l.UsedPercent); Assert.Null(l.ResetsAt); });
     }
 
@@ -64,6 +70,7 @@ public class AiQuotaTests
 
         Assert.Equal("Plus", parsed.Plan);
         Assert.Equal(["5h", "7d"], parsed.Limits.Select(l => l.Label));
+        Assert.Equal(["primary_window:18000", "secondary_window:604800"], parsed.Limits.Select(l => l.Identity));
         Assert.Equal(28, parsed.Limits[1].UsedPercent);
         Assert.Equal(DateTimeOffset.FromUnixTimeSeconds(1794378984), parsed.Limits[1].ResetsAt);
     }
@@ -84,6 +91,7 @@ public class AiQuotaTests
         var limit = Assert.Single(parsed.Limits);
         Assert.Equal("Enterprise", parsed.Plan);
         Assert.Equal("AI credits", limit.Label);
+        Assert.Equal("premium_interactions:credits", limit.Identity);
         Assert.Equal(15.3, limit.UsedPercent!.Value, 3);
         Assert.Equal("7,514 / 50,000", limit.Detail);
         Assert.Equal(new DateTimeOffset(2026, 12, 1, 0, 0, 0, TimeSpan.Zero), limit.ResetsAt);
@@ -149,6 +157,22 @@ public class AiQuotaTests
         Assert.Collection(limits,
             l => { Assert.Equal("Gemini / Daily", l.Label); Assert.Equal(75, l.UsedPercent); },
             l => { Assert.Equal("Gemini / Weekly", l.Label); Assert.Equal(100, l.UsedPercent); });
+    }
+
+    [Fact]
+    public void Antigravity_identity_uses_a_stable_provider_key_not_the_display_label()
+    {
+        var first = Assert.Single(QuotaParsers.ParseAntigravitySummary("""
+            {"groups":[{"displayName":"Gemini","buckets":[
+              {"bucketId":"model-bucket-1","displayName":"Daily","remainingFraction":0.5,"resetTime":"2026-11-06T00:00:00Z"}]}]}
+            """));
+        var translated = Assert.Single(QuotaParsers.ParseAntigravitySummary("""
+            {"groups":[{"displayName":"Gemini","buckets":[
+              {"bucketId":"model-bucket-1","displayName":"Día","remainingFraction":0.5,"resetTime":"2026-11-06T00:00:00Z"}]}]}
+            """));
+
+        Assert.Equal(first.Identity, translated.Identity);
+        Assert.DoesNotContain("model-bucket-1", first.Identity, StringComparison.Ordinal);
     }
 
     [Fact]

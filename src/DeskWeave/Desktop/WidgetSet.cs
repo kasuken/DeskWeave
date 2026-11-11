@@ -57,8 +57,15 @@ internal sealed class WidgetSet
 
     public void Update(IReadOnlyList<ProviderStatusReading> readings) => _github.Update(readings);
 
+    public void Update(
+        IReadOnlyList<ProviderQuota> quotas,
+        IReadOnlyDictionary<QuotaLimitKey, QuotaForecast> forecasts,
+        bool refreshing,
+        DateTimeOffset? updatedAt) =>
+        _quota.Update(quotas, forecasts, refreshing, updatedAt);
+
     public void Update(IReadOnlyList<ProviderQuota> quotas, bool refreshing, DateTimeOffset? updatedAt) =>
-        _quota.Update(quotas, refreshing, updatedAt);
+        _quota.Update(quotas, null, refreshing, updatedAt);
 
     /// <summary>
     /// Lays the widgets out in DIPs of this monitor, relative to its work area, then converts to physical pixels.

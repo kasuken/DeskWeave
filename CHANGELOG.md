@@ -4,6 +4,12 @@ All notable changes to DeskWeave are documented here using [Keep a Changelog](ht
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-11
+
+### Added
+
+- **Estimated quota runway** - See whether recent subscription usage is likely to last until reset, with clear indication when there is not enough fresh history for an estimate.
+
 ## [0.2.0] - 2026-11-11
 
 ### Added

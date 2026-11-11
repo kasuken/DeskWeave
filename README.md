@@ -24,8 +24,8 @@ Built with **.NET 10 + WPF**, styled with the Neon Intrusion palette, and inspir
 
 Download the self-contained Windows x64 build from [GitHub Releases](https://github.com/kasuken/DeskWeave/releases/latest):
 
-1. Download [DeskWeave-0.2.0-win-x64.zip](https://github.com/kasuken/DeskWeave/releases/download/v0.2.0/DeskWeave-0.2.0-win-x64.zip) and [SHA256SUMS.txt](https://github.com/kasuken/DeskWeave/releases/download/v0.2.0/SHA256SUMS.txt).
-2. Compare `Get-FileHash .\DeskWeave-0.2.0-win-x64.zip -Algorithm SHA256` with the checksum file.
+1. Download [DeskWeave-0.3.0-win-x64.zip](https://github.com/kasuken/DeskWeave/releases/download/v0.3.0/DeskWeave-0.3.0-win-x64.zip) and [SHA256SUMS.txt](https://github.com/kasuken/DeskWeave/releases/download/v0.3.0/SHA256SUMS.txt).
+2. Compare `Get-FileHash .\DeskWeave-0.3.0-win-x64.zip -Algorithm SHA256` with the checksum file.
 3. Extract the **entire** ZIP to a stable, writable folder, then run `DeskWeave.exe` inside its folder. Keep the bundled files together.
 
 Requires a Windows 10/11 x64 desktop supported by .NET 10. The portable ZIP includes the runtime; no SDK or runtime installation and no administrator access are needed. Linux and macOS cannot run the WPF app. Provider CLIs and paid accounts are optional; the other widgets work without them.
@@ -93,6 +93,12 @@ Here, `~` means your Windows user-profile folder. These environment variables ov
 
 Quota refreshes run every **five minutes**. Missing credentials and free or unrecognized plans are omitted; no recognized plans means no quota panel. An available plan can still report **Quota unavailable** if its endpoint returns no supported limits.
 
+Quota runway is an **estimate**, not a guarantee: it assumes the rate between the first and last recent observations continues until the limit resets. It uses at least three fresh observations spanning at least 15 minutes within the last hour, without making extra provider requests. Until enough data is available, or when recent usage is unchanged, it says so rather than predicting unlimited usage. A reset, counter decrease, plan/limit change, failed refresh or gap over 10 minutes starts a new series; stale readings do not advance it.
+
+History does not contain account identifiers, so a switch between accounts with the same plan, limits and reset time may not be detected. To avoid mixing those accounts' observations, exit DeskWeave and delete `ai-quota-history.json` before reopening it after switching accounts.
+
+If quota history cannot be read or saved, the tray menu shows a warning; quota refreshes continue.
+
 > [!IMPORTANT]
 > DeskWeave does not renew credentials. For **Sign in to refresh**, renew the sign-in using that provider's tool and wait for the next refresh. Provider usage APIs, including internal endpoints, can change independently of DeskWeave. This is a quota display, not a billing meter or agent-task tracker.
 
@@ -111,6 +117,7 @@ Local files live in `%LOCALAPPDATA%\DeskWeave`:
 | `github-status.json` | Cached public service status. |
 | `anthropic-status.json`, `openai-status.json` | Cached public Claude and OpenAI service status. |
 | `ai-quota.json` | Display data: plan labels, usage limits, reset times and freshness/status metadata; no credentials. |
+| `ai-quota-history.json` | Display-safe provider, plan, limit, reset time, observation time and usage percentages; capped at 1,024 observations and 512 KiB. History is pruned to the last 60 minutes when loaded or refreshed. No credentials or account identifiers. |
 
 Status and quota caches retain last-known data for up to **24 hours**. Offline readings are explicitly marked and gray, not presented as fresh. Without recent data, status reports unavailable and quota providers can disappear.
 
@@ -156,11 +163,11 @@ dotnet test .\DeskWeave.slnx --configuration Release --no-build
 
 The tray is the interactive surface; `WidgetHost` owns shared data loops and `WidgetSet` owns each screen's windows. Keep provider parsing in Core and Windows-specific work in the WPF project.
 
-To reproduce the portable build from the [v0.2.0 source](https://github.com/kasuken/DeskWeave/tree/v0.2.0), use .NET SDK 10.0.404 on Windows x64:
+To reproduce the portable build from the [v0.3.0 source](https://github.com/kasuken/DeskWeave/tree/v0.3.0), use .NET SDK 10.0.404 on Windows x64:
 
 ```powershell
-dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.2.0-win-x64
-Compress-Archive -Path .\artifacts\DeskWeave-0.2.0-win-x64 -DestinationPath .\artifacts\DeskWeave-0.2.0-win-x64.zip
+dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.3.0-win-x64
+Compress-Archive -Path .\artifacts\DeskWeave-0.3.0-win-x64 -DestinationPath .\artifacts\DeskWeave-0.3.0-win-x64.zip
 ```
 
 `--self-contained true` includes the .NET runtime in the publish folder. Package the entire folder in the release ZIP, not just `DeskWeave.exe`.

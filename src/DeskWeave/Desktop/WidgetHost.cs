@@ -41,7 +41,11 @@ public sealed class WidgetHost : IDisposable
     private readonly Dictionary<string, Task> _statusTasks = [];
     private readonly Dictionary<string, DateTimeOffset> _statusNotBefore = [];
     private readonly HashSet<string> _enabledStatus;
-    private (IReadOnlyList<ProviderQuota> Quotas, bool Refreshing, DateTimeOffset? UpdatedAt)? _quotas;
+    private (
+        IReadOnlyList<ProviderQuota> Quotas,
+        IReadOnlyDictionary<QuotaLimitKey, QuotaForecast> Forecasts,
+        bool Refreshing,
+        DateTimeOffset? UpdatedAt)? _quotas;
 
     private MonitorMode _mode;
     private bool _started;
@@ -68,6 +72,7 @@ public sealed class WidgetHost : IDisposable
 
     public bool IsVisible => _visible;
     public string? StatusSettingsWarning { get; private set; }
+    public string? QuotaHistoryWarning { get; private set; }
 
     public bool IsStatusEnabled(string id) => _enabledStatus.Contains(id);
 
@@ -221,7 +226,7 @@ public sealed class WidgetHost : IDisposable
 
         if (_quotas is { } quotas)
         {
-            set.Update(quotas.Quotas, quotas.Refreshing, quotas.UpdatedAt);
+            set.Update(quotas.Quotas, quotas.Forecasts, quotas.Refreshing, quotas.UpdatedAt);
         }
 
         return set;
@@ -250,12 +255,16 @@ public sealed class WidgetHost : IDisposable
         ScheduleLayout();
     }
 
-    private void Publish(IReadOnlyList<ProviderQuota> quotas, bool refreshing, DateTimeOffset? updatedAt)
+    private void Publish(
+        IReadOnlyList<ProviderQuota> quotas,
+        IReadOnlyDictionary<QuotaLimitKey, QuotaForecast> forecasts,
+        bool refreshing,
+        DateTimeOffset? updatedAt)
     {
-        _quotas = (quotas, refreshing, updatedAt);
+        _quotas = (quotas, forecasts, refreshing, updatedAt);
         foreach (var set in _sets)
         {
-            set.Update(quotas, refreshing, updatedAt);
+            set.Update(quotas, forecasts, refreshing, updatedAt);
         }
     }
 
@@ -345,17 +354,20 @@ public sealed class WidgetHost : IDisposable
         var service = new AiQuotaService(
             _quotaHttp,
             QuotaSources.Default(() => WindowsCredentialReader.ReadGeneric(WindowsCredentialReader.AntigravityTarget)),
-            Path.Combine(DataFolder, "ai-quota.json"));
+            Path.Combine(DataFolder, "ai-quota.json"),
+            historyFile: Path.Combine(DataFolder, "ai-quota-history.json"));
         var quotas = service.LoadCached();
-        Publish(quotas, refreshing: true, updatedAt: null);
+        QuotaHistoryWarning = service.HistoryWarning;
+        Publish(quotas, service.Forecasts, refreshing: true, updatedAt: null);
         ScheduleLayout();
 
         using var timer = new PeriodicTimer(AiQuotaService.RefreshInterval);
         do
         {
-            Publish(quotas, refreshing: true, updatedAt: null);
+            Publish(quotas, service.Forecasts, refreshing: true, updatedAt: null);
             quotas = await Task.Run(() => service.RefreshAsync(cancellationToken), cancellationToken);
-            Publish(quotas, refreshing: false, updatedAt: DateTimeOffset.Now);
+            QuotaHistoryWarning = service.HistoryWarning;
+            Publish(quotas, service.Forecasts, refreshing: false, updatedAt: DateTimeOffset.Now);
             ScheduleLayout();
         }
         while (await timer.WaitForNextTickAsync(cancellationToken));

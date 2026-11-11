@@ -38,7 +38,12 @@ public sealed record QuotaSources(
 /// Tokens are read on every refresh, sent only to the provider's own HTTPS host and never logged or cached:
 /// the on-disk cache holds only plan names, limits and reset times.
 /// </summary>
-public sealed class AiQuotaService(HttpClient http, QuotaSources sources, string cacheFile, TimeProvider? time = null)
+public sealed class AiQuotaService(
+    HttpClient http,
+    QuotaSources sources,
+    string cacheFile,
+    TimeProvider? time = null,
+    string? historyFile = null)
 {
     public static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(5);
 
@@ -52,10 +57,21 @@ public sealed class AiQuotaService(HttpClient http, QuotaSources sources, string
         new(["api.anthropic.com", "chatgpt.com", "daily-cloudcode-pa.googleapis.com"], StringComparer.OrdinalIgnoreCase);
 
     private readonly TimeProvider _time = time ?? TimeProvider.System;
+    private readonly string _historyFile = historyFile
+        ?? Path.Combine(Path.GetDirectoryName(cacheFile) ?? string.Empty, "ai-quota-history.json");
+    private readonly QuotaForecastEngine _forecastEngine = new(time);
     private IReadOnlyList<ProviderQuota> _current = [];
+    private bool _historyLoadFailed;
+
+    public IReadOnlyDictionary<QuotaLimitKey, QuotaForecast> Forecasts =>
+        _forecastEngine.Forecasts(_current, _time.GetUtcNow());
+
+    public string? HistoryWarning { get; private set; }
 
     public IReadOnlyList<ProviderQuota> LoadCached()
     {
+        HistoryWarning = _forecastEngine.Load(_historyFile);
+        _historyLoadFailed = HistoryWarning is not null;
         _current = QuotaCache.Read(cacheFile, _time.GetUtcNow());
         return _current;
     }
@@ -68,7 +84,30 @@ public sealed class AiQuotaService(HttpClient http, QuotaSources sources, string
             Guard(QuotaProviders.Copilot, FetchCopilotAsync, cancellationToken),
             Guard(QuotaProviders.Antigravity, FetchAntigravityAsync, cancellationToken));
 
-        _current = QuotaReconciler.Reconcile(_current, outcomes, _time.GetUtcNow());
+        var now = _time.GetUtcNow();
+        foreach (var outcome in outcomes)
+        {
+            if (outcome.Kind == OutcomeKind.Active && outcome.Quota is { } fresh)
+            {
+                _forecastEngine.Observe(fresh, now);
+            }
+            else
+            {
+                _forecastEngine.ResetProvider(outcome.Id);
+            }
+        }
+
+        var saveWarning = _forecastEngine.Save(_historyFile);
+        if (saveWarning is not null)
+        {
+            HistoryWarning = saveWarning;
+        }
+        else if (!_historyLoadFailed)
+        {
+            HistoryWarning = null;
+        }
+
+        _current = QuotaReconciler.Reconcile(_current, outcomes, now);
         QuotaCache.Write(cacheFile, _current);
         return _current;
     }
@@ -85,7 +124,8 @@ public sealed class AiQuotaService(HttpClient http, QuotaSources sources, string
             return ProviderOutcome.Auth(id);
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException or FormatException
-                                       or UnauthorizedAccessException or InvalidOperationException
+                                       or UnauthorizedAccessException or InvalidOperationException or Win32Exception
+                                       or ArgumentOutOfRangeException or OverflowException
                                    || (ex is TaskCanceledException && !cancellationToken.IsCancellationRequested))
         {
             return ProviderOutcome.Error(id);
@@ -259,7 +299,45 @@ public sealed class AiQuotaService(HttpClient http, QuotaSources sources, string
     private ProviderOutcome Active(string id, string plan, IReadOnlyList<QuotaLimit> limits, string? status) =>
         ProviderOutcome.Active(new ProviderQuota(id, QuotaProviders.Name(id), plan, limits, status, _time.GetUtcNow()));
 
-    private static string? ReadFile(string path) => File.Exists(path) ? File.ReadAllText(path) : null;
+    private static string? ReadFile(string path)
+    {
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        }
+        catch (FileNotFoundException)
+        {
+            return null;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return null;
+        }
+
+        using (stream)
+        {
+            if (stream.Length > MaxBytes)
+            {
+                throw new FormatException("Oversized credential file");
+            }
+
+            using var buffer = new MemoryStream();
+            var chunk = new byte[16 * 1024];
+            int read;
+            while ((read = stream.Read(chunk, 0, chunk.Length)) > 0)
+            {
+                if (buffer.Length + read > MaxBytes)
+                {
+                    throw new FormatException("Oversized credential file");
+                }
+
+                buffer.Write(chunk, 0, read);
+            }
+
+            return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length).TrimStart('\uFEFF');
+        }
+    }
 
     private sealed class QuotaAuthException : Exception;
 }
@@ -267,12 +345,14 @@ public sealed class AiQuotaService(HttpClient http, QuotaSources sources, string
 /// <summary>Display-only cache so the widget has content immediately after a restart.</summary>
 public static class QuotaCache
 {
+    private const int MaxBytes = 1_000_000;
+
     public static IReadOnlyList<ProviderQuota> Read(string file, DateTimeOffset now)
     {
         try
         {
-            if (File.Exists(file)
-                && JsonSerializer.Deserialize<List<ProviderQuota>>(File.ReadAllText(file)) is { } cached)
+            if (ReadBounded(file) is { } json
+                && JsonSerializer.Deserialize<List<ProviderQuota>>(json) is { } cached)
             {
                 return cached
                     .Where(q => q is { Id: not null, Plan: not null, Limits: not null } && QuotaProviders.Order.Contains(q.Id)
@@ -297,14 +377,53 @@ public static class QuotaCache
                 return;
             }
 
-            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            if (Path.GetDirectoryName(file) is { Length: > 0 } directory)
+            {
+                Directory.CreateDirectory(directory);
+            }
+
             var temporary = file + ".tmp";
-            File.WriteAllText(temporary, JsonSerializer.Serialize(quotas));
+            var json = JsonSerializer.SerializeToUtf8Bytes(quotas);
+            if (json.Length > MaxBytes)
+            {
+                return;
+            }
+
+            File.WriteAllBytes(temporary, json);
             File.Move(temporary, file, overwrite: true);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
         }
+    }
+
+    private static string? ReadBounded(string file)
+    {
+        if (!File.Exists(file))
+        {
+            return null;
+        }
+
+        using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        if (stream.Length > MaxBytes)
+        {
+            return null;
+        }
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[16 * 1024];
+        int read;
+        while ((read = stream.Read(chunk, 0, chunk.Length)) > 0)
+        {
+            if (buffer.Length + read > MaxBytes)
+            {
+                return null;
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length).TrimStart('\uFEFF');
     }
 }
 
@@ -312,6 +431,8 @@ public static class QuotaCache
 public static class ProcessRunner
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
+    private const int MaxOutputCharacters = 1_000_000;
+    private const int MaxErrorCharacters = 32_000;
 
     public static async Task<CommandResult?> RunAsync(string fileName, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {
@@ -345,22 +466,35 @@ public static class ProcessRunner
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(Timeout);
-            var output = process.StandardOutput.ReadToEndAsync(timeout.Token);
-            var error = process.StandardError.ReadToEndAsync(timeout.Token);
+            var output = ReadBoundedAsync(process.StandardOutput, MaxOutputCharacters, timeout.Token);
+            var error = ReadBoundedAsync(process.StandardError, MaxErrorCharacters, timeout.Token);
+            var wait = process.WaitForExitAsync(timeout.Token);
             try
             {
-                await process.WaitForExitAsync(timeout.Token);
+                var outputComplete = false;
+                var errorComplete = false;
+                while (!wait.IsCompleted)
+                {
+                    var pending = new List<Task> { wait };
+                    if (!outputComplete) pending.Add(output);
+                    if (!errorComplete) pending.Add(error);
+                    var completed = await Task.WhenAny(pending);
+                    if (completed == wait)
+                    {
+                        break;
+                    }
+
+                    await completed;
+                    outputComplete |= completed == output;
+                    errorComplete |= completed == error;
+                }
+
+                await Task.WhenAll(wait, output, error);
                 return new CommandResult(process.ExitCode, await output);
             }
             catch (OperationCanceledException)
             {
-                try
-                {
-                    process.Kill(entireProcessTree: true);
-                }
-                catch (InvalidOperationException)
-                {
-                }
+                Kill(process);
 
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -369,10 +503,58 @@ public static class ProcessRunner
 
                 throw new IOException("Command timed out");
             }
+            catch (Exception ex) when (ex is IOException or FormatException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                Kill(process);
+                throw;
+            }
             finally
             {
-                _ = error.ContinueWith(static _ => { }, TaskScheduler.Default);
+                ObserveCompletion(output);
+                ObserveCompletion(error);
             }
         }
     }
+
+    private static async Task<string> ReadBoundedAsync(
+        StreamReader reader,
+        int maximumCharacters,
+        CancellationToken cancellationToken)
+    {
+        var text = new StringBuilder(Math.Min(maximumCharacters, 16 * 1024));
+        var buffer = new char[8 * 1024];
+        int read;
+        while ((read = await reader.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+        {
+            if (text.Length + read > maximumCharacters)
+            {
+                throw new FormatException("Command output exceeded the size limit");
+            }
+
+            text.Append(buffer, 0, read);
+        }
+
+        return text.ToString();
+    }
+
+    private static void Kill(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private static void ObserveCompletion(Task<string> task) =>
+        _ = task.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 }

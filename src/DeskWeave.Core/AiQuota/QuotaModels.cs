@@ -6,7 +6,8 @@ public sealed record QuotaLimit(
     double? UsedPercent,
     DateTimeOffset? ResetsAt,
     string? Detail = null,
-    bool Unlimited = false);
+    bool Unlimited = false,
+    string? Identity = null);
 
 /// <summary>Display-only snapshot of one paid AI subscription. Never contains credentials or account identifiers.</summary>
 public sealed record ProviderQuota(
