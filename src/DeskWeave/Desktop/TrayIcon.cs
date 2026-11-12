@@ -89,6 +89,45 @@ public sealed class TrayIcon : IDisposable
             });
         }
 
+        var agentMenu = new Forms.ToolStripMenuItem("Agent activity");
+        var agentToggle = new Forms.ToolStripMenuItem("Enable Claude Code hooks");
+        var agentStatus = new Forms.ToolStripMenuItem { Enabled = false };
+        var agentWarning = new Forms.ToolStripMenuItem { Enabled = false, Visible = false };
+        var workspaceMenu = new Forms.ToolStripMenuItem("Open workspace folder");
+        agentToggle.Click += (_, _) =>
+        {
+            try
+            {
+                _host.SetAgentEnabled("claude-code", !_host.IsAgentEnabled("claude-code"));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                Forms.MessageBox.Show($"Could not save agent activity settings: {ex.Message}",
+                    "DeskWeave", Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Error);
+            }
+        };
+        agentMenu.DropDownItems.Add(agentToggle);
+        agentMenu.DropDownItems.Add(agentStatus);
+        agentMenu.DropDownItems.Add(agentWarning);
+        agentMenu.DropDownItems.Add(new Forms.ToolStripSeparator());
+        agentMenu.DropDownItems.Add("Edit integration settings", null, (_, _) =>
+        {
+            try
+            {
+                WidgetHost.PrepareAgentSettingsFile();
+                var start = new ProcessStartInfo("notepad.exe") { UseShellExecute = false };
+                start.ArgumentList.Add(WidgetHost.AgentSettingsPath);
+                Process.Start(start);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception or InvalidOperationException)
+            {
+                Forms.MessageBox.Show($"Could not open agent settings: {ex.Message}",
+                    "DeskWeave", Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Error);
+            }
+        });
+        agentMenu.DropDownItems.Add("Reload integration settings", null, (_, _) => _host.ReloadAgentSettings());
+        agentMenu.DropDownItems.Add(workspaceMenu);
+
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(new Forms.ToolStripLabel("DeskWeave") { Enabled = false });
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -96,6 +135,7 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add("Refresh layout", null, (_, _) => _host.ScheduleLayout());
         menu.Items.Add(startup);
         menu.Items.Add(statusMenu);
+        menu.Items.Add(agentMenu);
         menu.Items.Add(quotaHistoryWarning);
         menu.Items.Add(new Forms.ToolStripSeparator());
         foreach (var (_, item) in screens)
@@ -123,6 +163,33 @@ public sealed class TrayIcon : IDisposable
             statusWarning.Visible = _host.StatusSettingsWarning is not null;
             quotaHistoryWarning.Text = _host.QuotaHistoryWarning ?? string.Empty;
             quotaHistoryWarning.Visible = _host.QuotaHistoryWarning is not null;
+            agentToggle.Checked = _host.IsAgentEnabled("claude-code");
+            var source = _host.AgentSources.FirstOrDefault(source => source.Id == "claude-code");
+            agentStatus.Text = source is null
+                ? agentToggle.Checked ? "Waiting for hook metadata" : "Disabled"
+                : source.Status;
+            agentWarning.Text = _host.AgentSettingsWarning ?? source?.Warning ?? string.Empty;
+            agentWarning.Visible = agentWarning.Text.Length > 0;
+            workspaceMenu.DropDownItems.Clear();
+            foreach (var (alias, destination) in _host.AgentWorkspaces.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+            {
+                var workspaceItem = new Forms.ToolStripMenuItem(alias);
+                workspaceItem.Click += (_, _) =>
+                {
+                    try
+                    {
+                        WorkspaceLauncher.Open(destination);
+                    }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+                                                   or Win32Exception or InvalidOperationException)
+                    {
+                        Forms.MessageBox.Show($"Could not open the workspace folder: {ex.Message}",
+                            "DeskWeave", Forms.MessageBoxButtons.OK, Forms.MessageBoxIcon.Error);
+                    }
+                };
+                workspaceMenu.DropDownItems.Add(workspaceItem);
+            }
+            workspaceMenu.Enabled = workspaceMenu.DropDownItems.Count > 0;
         };
 
         _icon = new Forms.NotifyIcon

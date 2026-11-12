@@ -1,5 +1,6 @@
 using System.Windows.Interop;
 using DeskWeave.Core.AiQuota;
+using DeskWeave.Core.AgentActivity;
 using DeskWeave.Core.Display;
 using DeskWeave.Core.GitHubStatus;
 using DeskWeave.Services;
@@ -22,11 +23,13 @@ internal sealed class WidgetSet
     private readonly GitHubStatusWidget _github = new();
     private readonly WorldClockWidget _clock = new();
     private readonly AiQuotaWidget _quota = new();
+    private readonly AgentActivityWidget _agents = new();
     private readonly DesktopWidgetWindow _monitorWindow;
     private readonly DesktopWidgetWindow _processesWindow;
     private readonly DesktopWidgetWindow _githubWindow;
     private readonly DesktopWidgetWindow _clockWindow;
     private readonly DesktopWidgetWindow _quotaWindow;
+    private readonly DesktopWidgetWindow _agentsWindow;
 
     public WidgetSet(DisplayInfo display, Action layoutChanged)
     {
@@ -36,6 +39,7 @@ internal sealed class WidgetSet
         _githubWindow = new DesktopWidgetWindow(_github, "GitHub Status");
         _clockWindow = new DesktopWidgetWindow(_clock, "World Clock");
         _quotaWindow = new DesktopWidgetWindow(_quota, "AI Subscriptions");
+        _agentsWindow = new DesktopWidgetWindow(_agents, "Agent Activity");
 
         foreach (var window in Windows)
         {
@@ -47,7 +51,7 @@ internal sealed class WidgetSet
     public DisplayInfo Display { get; set; }
 
     private IEnumerable<DesktopWidgetWindow> Windows =>
-        [_monitorWindow, _processesWindow, _githubWindow, _clockWindow, _quotaWindow];
+        [_monitorWindow, _processesWindow, _githubWindow, _clockWindow, _quotaWindow, _agentsWindow];
 
     public void Update(SystemSample sample)
     {
@@ -56,6 +60,7 @@ internal sealed class WidgetSet
     }
 
     public void Update(IReadOnlyList<ProviderStatusReading> readings) => _github.Update(readings);
+    public void Update(AgentActivitySnapshot snapshot) => _agents.Update(snapshot);
 
     public void Update(
         IReadOnlyList<ProviderQuota> quotas,
@@ -130,14 +135,35 @@ internal sealed class WidgetSet
         var limit = clockTop - gap;
         var leftBound = margin;
         var quotaSize = _quotaWindow.MeasureScaled();
+        var quotaBottom = margin;
         if (_quota.HasProviders && margin + quotaSize.Height <= limit && margin + quotaSize.Width + gap <= monitorLeft)
         {
             Place(_quotaWindow, margin, margin);
             leftBound += quotaSize.Width + gap;
+            quotaBottom += quotaSize.Height + gap;
         }
         else
         {
             _quotaWindow.Hide();
+        }
+
+        // Agent attention shares the left column, never covering subscriptions or the clock.
+        var agentsSize = _agentsWindow.MeasureScaled();
+        if (_agents.HasSources && quotaBottom + agentsSize.Height <= limit
+            && margin + agentsSize.Width + gap <= monitorLeft)
+        {
+            Place(_agentsWindow, margin, quotaBottom);
+            leftBound = Math.Max(leftBound, margin + agentsSize.Width + gap);
+        }
+        else if (_agents.HasSources && margin + agentsSize.Height <= limit
+                 && leftBound + agentsSize.Width + gap <= monitorLeft)
+        {
+            Place(_agentsWindow, leftBound, margin);
+            leftBound += agentsSize.Width + gap;
+        }
+        else
+        {
+            _agentsWindow.Hide();
         }
 
         // GitHub status: below both right-side panels when tall enough, beside them on short wide screens.

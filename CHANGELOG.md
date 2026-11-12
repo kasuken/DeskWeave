@@ -2,7 +2,11 @@
 
 All notable changes to DeskWeave are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
-## [Unreleased]
+## [0.4.0] - 2026-11-12
+
+### Added
+
+- **Agent attention** - Opt into Claude Code lifecycle hooks to see independent coding turns, approval/input requests and recent outcomes, with explicit disconnected/unknown states and safe workspace navigation from the tray.
 
 ## [0.3.0] - 2026-11-11
 

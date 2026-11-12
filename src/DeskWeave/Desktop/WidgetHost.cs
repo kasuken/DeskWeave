@@ -2,6 +2,7 @@ using System.Net.Http;
 using System.Windows;
 using System.Windows.Threading;
 using DeskWeave.Core.AiQuota;
+using DeskWeave.Core.AgentActivity;
 using DeskWeave.Core.Display;
 using DeskWeave.Core.GitHubStatus;
 using DeskWeave.Services;
@@ -24,6 +25,12 @@ public sealed class WidgetHost : IDisposable
     private readonly List<WidgetSet> _sets = [];
     private readonly DisplaySettingsStore _settings = new(Path.Combine(DataFolder, "settings.json"));
     private readonly StatusSettingsStore _statusSettings = new(Path.Combine(DataFolder, "service-status-settings.json"));
+    private readonly AgentActivitySettingsStore _agentSettingsStore = new(Path.Combine(DataFolder, "agent-activity-settings.json"));
+    private AgentActivityService _agentActivity = new(Path.Combine(DataFolder, "agent-activity"));
+    private AgentActivitySettings _agentSettings;
+    private AgentActivitySnapshot _activity = AgentActivitySnapshot.Empty;
+    private CancellationTokenSource? _agentReadCancellation;
+    private int _agentSettingsGeneration;
     private readonly CancellationTokenSource _stopping = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(10) };
 
@@ -55,6 +62,7 @@ public sealed class WidgetHost : IDisposable
     public WidgetHost()
     {
         _mode = _settings.Load();
+        _agentSettings = _agentSettingsStore.Load();
         var statusSettings = _statusSettings.Load();
         _enabledStatus = new HashSet<string>(statusSettings.Enabled, StringComparer.Ordinal);
         StatusSettingsWarning = statusSettings.Warning;
@@ -73,6 +81,45 @@ public sealed class WidgetHost : IDisposable
     public bool IsVisible => _visible;
     public string? StatusSettingsWarning { get; private set; }
     public string? QuotaHistoryWarning { get; private set; }
+    public string? AgentSettingsWarning => _agentSettings.Warning;
+    public IReadOnlyDictionary<string, string> AgentWorkspaces => _agentSettings.Workspaces;
+    public IReadOnlyList<AgentSourceView> AgentSources => _activity.Sources;
+    public static string AgentSettingsPath => Path.Combine(DataFolder, "agent-activity-settings.json");
+
+    public bool IsAgentEnabled(string id) => _agentSettings.EnabledIntegrations.Contains(id, StringComparer.Ordinal);
+
+    public void SetAgentEnabled(string id, bool enabled)
+    {
+        if (id != "claude-code") throw new ArgumentException("Unknown agent integration.", nameof(id));
+        var selected = _agentSettings.EnabledIntegrations.ToHashSet(StringComparer.Ordinal);
+        if (enabled) selected.Add(id);
+        else selected.Remove(id);
+        _agentSettingsStore.Save(selected, _agentSettings.Workspaces);
+        _agentSettings = new AgentActivitySettings(selected.ToArray(), _agentSettings.Workspaces, null);
+        AgentSettingsChanged();
+    }
+
+    public void ReloadAgentSettings()
+    {
+        _agentSettings = _agentSettingsStore.Load();
+        AgentSettingsChanged();
+    }
+
+    public static void PrepareAgentSettingsFile()
+    {
+        if (!File.Exists(AgentSettingsPath))
+        {
+            new AgentActivitySettingsStore(AgentSettingsPath).Save([], new Dictionary<string, string>());
+        }
+    }
+
+    private void AgentSettingsChanged()
+    {
+        _agentSettingsGeneration++;
+        _agentReadCancellation?.Cancel();
+        _agentActivity = new AgentActivityService(Path.Combine(DataFolder, "agent-activity"));
+        PublishActivity(AgentActivitySnapshot.Empty);
+    }
 
     public bool IsStatusEnabled(string id) => _enabledStatus.Contains(id);
 
@@ -141,6 +188,7 @@ public sealed class WidgetHost : IDisposable
         }
         PublishStatuses();
         _ = RunAiQuotaAsync(_stopping.Token);
+        _ = RunAgentActivityAsync(_stopping.Token);
     }
 
     public void Show()
@@ -223,6 +271,7 @@ public sealed class WidgetHost : IDisposable
         }
 
         set.Update(CurrentStatuses());
+        set.Update(_activity);
 
         if (_quotas is { } quotas)
         {
@@ -253,6 +302,51 @@ public sealed class WidgetHost : IDisposable
             set.Update(readings);
         }
         ScheduleLayout();
+    }
+
+    private void PublishActivity(AgentActivitySnapshot snapshot)
+    {
+        _activity = snapshot;
+        foreach (var set in _sets)
+        {
+            set.Update(snapshot);
+        }
+        ScheduleLayout();
+    }
+
+    private async Task RunAgentActivityAsync(CancellationToken cancellationToken)
+    {
+        using var timer = new PeriodicTimer(SampleInterval);
+        try
+        {
+            do
+            {
+                var generation = _agentSettingsGeneration;
+                var enabled = _agentSettings.EnabledIntegrations.ToArray();
+                var service = _agentActivity;
+                using var read = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                _agentReadCancellation = read;
+                try
+                {
+                    var snapshot = await Task.Run(() => service.ReadAsync(enabled, read.Token), read.Token);
+                    if (generation == _agentSettingsGeneration && !read.IsCancellationRequested)
+                    {
+                        PublishActivity(snapshot);
+                    }
+                }
+                catch (OperationCanceledException) when (read.IsCancellationRequested)
+                {
+                }
+                finally
+                {
+                    _agentReadCancellation = null;
+                }
+            }
+            while (await timer.WaitForNextTickAsync(cancellationToken));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
     }
 
     private void Publish(

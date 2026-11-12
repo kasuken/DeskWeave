@@ -61,7 +61,7 @@ public class WidgetSetTests(WpfFixture fixture)
                 }
 
                 var windows = Application.Current.Windows.OfType<DesktopWidgetWindow>().ToArray();
-                Assert.Equal(10, windows.Length);
+                Assert.Equal(12, windows.Length);
                 foreach (var window in windows.Where(w => w.Widget is AiQuotaWidget))
                 {
                     Assert.True(window.IsVisible);
