@@ -66,17 +66,18 @@ public partial class AiQuotaWidget : UserControl
     private ProviderCard ToCard(ProviderQuota quota, DateTimeOffset now)
     {
         var tint = Tint(quota.Id);
-        var limits = quota.Limits.Take(MaxVisibleLimitsPerProvider).Select(limit =>
+        var visibleLimitCount = quota.Id == QuotaProviders.Antigravity ? 4 : MaxVisibleLimitsPerProvider;
+        var limits = quota.Limits.Take(visibleLimitCount).Select(limit =>
         {
             var hasMeter = QuotaText.HasMeter(limit, now);
             var critical = hasMeter && limit.UsedPercent >= CriticalPercent;
             var detail = QuotaText.Detail(limit, now);
-            var forecast = limit.RemainingAmount is null ? Forecast(quota, limit, now) : string.Empty;
+            var forecast = limit.RemainingAmount is null && !limit.ShowRemaining ? Forecast(quota, limit, now) : string.Empty;
             return new LimitRow(
                 limit.Label,
                 QuotaText.Value(limit, now),
                 quota.Stale ? Brush("MutedBrush") : critical ? Brush("RedBrush") : Brush("ForegroundBrush"),
-                limit.UsedPercent ?? 0,
+                limit.ShowRemaining && limit.UsedPercent is { } used ? 100 - used : limit.UsedPercent ?? 0,
                 quota.Stale ? Brush("MutedBrush") : critical ? Brush("RedBrush") : tint,
                 hasMeter ? Visibility.Visible : Visibility.Collapsed,
                 detail,

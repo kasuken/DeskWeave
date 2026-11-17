@@ -35,30 +35,31 @@ public class AiQuotaWidgetTests(WpfFixture fixture)
     }
 
     [Fact]
-    public void Widget_labels_antigravity_rate_limit_fallback_and_keeps_its_meter()
+    public void Widget_renders_antigravity_cli_quotas_as_remaining_and_shows_all_four_windows()
     {
         fixture.Run(() =>
         {
             var widget = new AiQuotaWidget();
-            var limits = QuotaParsers.ParseAntigravitySummary("""
-                {"groups":[{"displayName":"Gemini","buckets":[
-                  {"bucketId":"gemini-weekly","displayName":"Weekly","remaining":{"remainingFraction":0.75},
-                   "resetTime":"2099-01-01T00:00:00Z"}]}]}
+            var limits = QuotaParsers.ParseAntigravityCliUsage("""
+                {"status":"SUCCESS","command":{"name":"usage","data":{"groups":[{"buckets":[
+                  {"id":"gemini-weekly","remaining_fraction":0.8856,"reset_time":"2099-01-01T00:00:00Z"},
+                  {"id":"gemini-5h","remaining_fraction":1,"reset_time":"2099-01-01T00:00:00Z"},
+                  {"id":"3p-weekly","remaining_fraction":1,"reset_time":"2099-01-01T00:00:00Z"},
+                  {"id":"3p-5h","remaining_fraction":1,"reset_time":"2099-01-01T00:00:00Z"}]}]}}}
                 """);
-            var quota = new ProviderQuota("antigravity", "Antigravity", "Google AI Pro", limits,
-                "Model rate limits (credits unavailable)", Now);
+            var quota = new ProviderQuota("antigravity", "Antigravity", "CLI", limits, null, Now);
 
             widget.Update([quota], refreshing: false, updatedAt: Now);
 
             var card = ReadCard(widget);
-            Assert.Equal("Model rate limits (credits unavailable)", card.Status);
-            Assert.Equal(Visibility.Visible, card.StatusVisibility);
-            var row = Assert.Single(card.Limits);
+            Assert.Equal(4, card.Limits.Count);
+            var row = card.Limits[0];
             Assert.Equal("Gemini / Weekly", row.Label);
-            Assert.Equal("25% used", row.Value);
+            Assert.Equal("88.56% left", row.Value);
+            Assert.Equal(88.56, row.Used, 2);
             Assert.Equal(Visibility.Visible, row.MeterVisibility);
             Assert.Equal(Visibility.Visible, row.DetailVisibility);
-            Assert.Equal(Visibility.Visible, row.ForecastVisibility);
+            Assert.Equal(Visibility.Collapsed, row.ForecastVisibility);
         });
     }
 

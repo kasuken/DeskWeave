@@ -2,6 +2,12 @@
 
 All notable changes to DeskWeave are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.5.0] - 2026-11-17
+
+### Changed
+
+- **Antigravity model quota** - Show the CLI's Gemini and Claude/GPT weekly and five-hour quota remaining, instead of hiding the provider when AI credits are unavailable.
+
 ## [0.4.1] - 2026-11-17
 
 ### Fixed

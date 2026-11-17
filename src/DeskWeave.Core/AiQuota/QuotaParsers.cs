@@ -257,6 +257,61 @@ public static class QuotaParsers
             limits.Count == 0 ? "Credits unavailable" : null));
     }
 
+    /// <summary>Reads model quotas from the CLI's successful structured /usage command report.</summary>
+    public static IReadOnlyList<QuotaLimit> ParseAntigravityCliUsage(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var root = document.RootElement;
+        if (root.Str("status") != "SUCCESS" || !root.TryGet(out var command, "command")
+            || command.Str("name") != "usage" || !command.TryGet(out var groups, "data", "groups")
+            || groups.ValueKind != JsonValueKind.Array)
+        {
+            throw new FormatException("Invalid Antigravity CLI usage report");
+        }
+
+        var labels = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["gemini-weekly"] = "Gemini / Weekly",
+            ["gemini-5h"] = "Gemini / 5h",
+            ["3p-weekly"] = "Claude + GPT / Weekly",
+            ["3p-5h"] = "Claude + GPT / 5h",
+        };
+        var found = new Dictionary<string, QuotaLimit>(StringComparer.Ordinal);
+        var duplicates = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var group in groups.EnumerateArray())
+        {
+            if (!group.TryGet(out var buckets, "buckets") || buckets.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            foreach (var bucket in buckets.EnumerateArray())
+            {
+                var id = bucket.Str("id");
+                if (id is null || !labels.TryGetValue(id, out var label) || bucket.Bool("disabled") == true)
+                {
+                    continue;
+                }
+
+                if (!duplicates.Add(id))
+                {
+                    throw new FormatException("Duplicate Antigravity quota bucket");
+                }
+
+                if (bucket.Num("remaining_fraction") is not { } fraction
+                    || !double.IsFinite(fraction) || fraction is < 0 or > 1)
+                {
+                    continue;
+                }
+
+                found.Add(id, new QuotaLimit(label, (1 - fraction) * 100, bucket.Time("reset_time"),
+                    Identity: "agy-usage:" + id, ShowRemaining: true));
+            }
+        }
+
+        return labels.Keys.Where(found.ContainsKey).Select(id => found[id]).ToList();
+    }
+
     public static IReadOnlyList<QuotaLimit> ParseAntigravitySummary(string json)
     {
         using var document = JsonDocument.Parse(json);

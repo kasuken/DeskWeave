@@ -8,7 +8,8 @@ public sealed record QuotaLimit(
     string? Detail = null,
     bool Unlimited = false,
     string? Identity = null,
-    double? RemainingAmount = null);
+    double? RemainingAmount = null,
+    bool ShowRemaining = false);
 
 /// <summary>Display-only snapshot of one paid AI subscription. Never contains credentials or account identifiers.</summary>
 public sealed record ProviderQuota(

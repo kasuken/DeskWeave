@@ -49,7 +49,6 @@ public sealed class AiQuotaService(
 
     private const string ClaudeUsage = "https://api.anthropic.com/api/oauth/usage";
     private const string CodexUsage = "https://chatgpt.com/backend-api/wham/usage";
-    private const string AntigravityAssist = "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
     private const int MaxBytes = 1_000_000;
 
     private static readonly HashSet<string> AllowedHosts =
@@ -218,34 +217,34 @@ public sealed class AiQuotaService(
             return ProviderOutcome.Auth(id);
         }
 
-        var (_, parsed) = QuotaParsers.ParseAntigravityAssist(await PostAntigravityAsync(
-            AntigravityAssist, """{"metadata":{"ideType":"ANTIGRAVITY"}}""", credential.AccessToken, cancellationToken));
-        if (parsed.Plan is not { } plan || parsed.Limits.Count == 0)
+        var executable = "agy";
+        var version = await sources.RunCommand(executable, ["--version"], cancellationToken);
+        if (version is null && sources.Environment("LOCALAPPDATA") is { Length: > 0 } local)
         {
-            return ProviderOutcome.Absent(id);
+            executable = Path.Combine(local, "agy", "bin", "agy.exe");
+            version = await sources.RunCommand(executable, ["--version"], cancellationToken);
         }
 
-        return Active(id, plan, parsed.Limits, parsed.Status);
-    }
-
-    private Task<string> PostAntigravityAsync(string url, string json, string token, CancellationToken cancellationToken)
-    {
-        var request = new HttpRequestMessage(HttpMethod.Post, url)
+        if (version is null)
         {
-            Content = new StringContent(json, Encoding.UTF8, "application/json"),
-        };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        request.Headers.UserAgent.Clear();
-        request.Headers.UserAgent.ParseAdd("antigravity");
-        return SendAndDisposeAsync(request, cancellationToken);
-    }
-
-    private async Task<string> SendAndDisposeAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        using (request)
-        {
-            return await SendAsync(request, cancellationToken);
+            return Active(id, "CLI", [], "Install Antigravity CLI to see quota");
         }
+
+        if (version.ExitCode != 0 || !Version.TryParse(version.Output.Trim(), out var parsedVersion)
+            || parsedVersion < new Version(1, 1, 11))
+        {
+            return Active(id, "CLI", [], "Update Antigravity CLI to see quota");
+        }
+
+        var report = await sources.RunCommand(executable,
+            ["-p", "/usage", "--output-format", "json", "--print-timeout", "80s"], cancellationToken);
+        if (report is null || report.ExitCode != 0)
+        {
+            return ProviderOutcome.Error(id);
+        }
+
+        var limits = QuotaParsers.ParseAntigravityCliUsage(report.Output);
+        return Active(id, "CLI", limits, limits.Count == 0 ? "Model quota unavailable" : null);
     }
 
     private async Task<string> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -349,8 +348,8 @@ public static class QuotaCache
                 return cached
                     .Where(q => q is { Id: not null, Plan: not null, Limits: not null } && QuotaProviders.Order.Contains(q.Id)
                                 && QuotaReconciler.IsFresh(q, now))
-                    .Where(q => q.Id != QuotaProviders.Antigravity
-                        || q.Limits.Any(l => l.RemainingAmount is { } amount && double.IsFinite(amount) && amount >= 0))
+                    .Where(q => q.Id != QuotaProviders.Antigravity || q.Plan == "CLI"
+                        && q.Limits.All(l => l.Identity?.StartsWith("agy-usage:", StringComparison.Ordinal) == true))
                     .ToList();
             }
         }
@@ -445,6 +444,11 @@ public static class ProcessRunner
 
         info.Environment["GH_PROMPT_DISABLED"] = "1";
         info.Environment["NO_COLOR"] = "1";
+        var antigravity = string.Equals(Path.GetFileNameWithoutExtension(fileName), "agy", StringComparison.OrdinalIgnoreCase);
+        if (antigravity)
+        {
+            info.Environment["AGY_CLI_DISABLE_AUTO_UPDATE"] = "true";
+        }
 
         Process process;
         try
@@ -459,7 +463,7 @@ public static class ProcessRunner
         using (process)
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(Timeout);
+            timeout.CancelAfter(antigravity ? TimeSpan.FromSeconds(90) : Timeout);
             var output = ReadBoundedAsync(process.StandardOutput, MaxOutputCharacters, timeout.Token);
             var error = ReadBoundedAsync(process.StandardError, MaxErrorCharacters, timeout.Token);
             var wait = process.WaitForExitAsync(timeout.Token);
