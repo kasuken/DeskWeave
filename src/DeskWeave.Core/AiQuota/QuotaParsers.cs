@@ -228,43 +228,57 @@ public static class QuotaParsers
             : null;
     }
 
-    /// <summary>Reads the Cloud Code project and the raw tier name from a loadCodeAssist response.</summary>
-    public static (string? Project, string? Plan) ParseAntigravityAssist(string json)
+    /// <summary>Reads the subscription and AI credit balance, not model quotas, from loadCodeAssist.</summary>
+    public static (string? Project, ParsedQuota Quota) ParseAntigravityAssist(string json)
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
-        string? project = null;
-        if (root.TryGet(out var p, "cloudaicompanionProject"))
-        {
-            project = p.ValueKind == JsonValueKind.String ? p.GetString() : p.Str("id");
-        }
-
+        var project = root.TryGet(out var p, "cloudaicompanionProject")
+            ? p.ValueKind == JsonValueKind.String ? p.GetString() : p.Str("id")
+            : null;
         var plan = root.TryGet(out var paid, "paidTier") ? paid.Str("name") : null;
         plan ??= root.TryGet(out var current, "currentTier") ? current.Str("name") : null;
-        return (project, plan);
+        var limits = new List<QuotaLimit>();
+        if (paid.TryGet(out var credits, "availableCredits") && credits.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var credit in credits.EnumerateArray())
+            {
+                if (credit.Str("creditType") == "GOOGLE_ONE_AI"
+                    && credit.Num("creditAmount") is { } amount && double.IsFinite(amount) && amount >= 0)
+                {
+                    limits.Add(new QuotaLimit("AI credits", null, null,
+                        Identity: "google_one_ai:credits", RemainingAmount: amount));
+                    break;
+                }
+            }
+        }
+
+        return (project, new ParsedQuota(PlanLabel(QuotaProviders.Antigravity, plan), limits,
+            limits.Count == 0 ? "Credits unavailable" : null));
     }
 
     public static IReadOnlyList<QuotaLimit> ParseAntigravitySummary(string json)
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
-        var summary = root.TryGet(out var r, "response") ? r : root.TryGet(out var s, "summary") ? s : root;
-        var limits = new List<QuotaLimit>();
-
-        IEnumerable<(string? Group, JsonElement Buckets)> groups;
-        if (summary.TryGet(out var g, "groups") && g.ValueKind == JsonValueKind.Array)
+        var summary = root.TryGet(out var response, "response") ? response
+            : root.TryGet(out var nested, "summary") ? nested : root;
+        IEnumerable<(string? Name, JsonElement Buckets)> groups;
+        if (summary.TryGet(out var grouped, "groups") && grouped.ValueKind == JsonValueKind.Array)
         {
-            groups = g.EnumerateArray().Select(group => (group.Str("displayName"), group.TryGet(out var b, "buckets") ? b : default));
+            groups = grouped.EnumerateArray().Select(group =>
+                (group.Str("displayName"), group.TryGet(out var groupBuckets, "buckets") ? groupBuckets : default));
         }
-        else if (summary.TryGet(out var b, "buckets") && b.ValueKind == JsonValueKind.Array)
+        else if (summary.TryGet(out var ungrouped, "buckets") && ungrouped.ValueKind == JsonValueKind.Array)
         {
-            groups = [("Gemini", b)];
+            groups = [(null, ungrouped)];
         }
         else
         {
             throw new FormatException("Unrecognized Antigravity quota summary");
         }
 
+        var limits = new List<QuotaLimit>();
         var identities = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (group, buckets) in groups)
         {
@@ -280,41 +294,34 @@ public static class QuotaParsers
                     continue;
                 }
 
-                var reset = bucket.Time("resetTime");
-                var fraction = bucket.Num("remainingFraction");
-                if (fraction is null)
+                var remaining = bucket.TryGet(out var value, "remaining") && value.ValueKind == JsonValueKind.Object
+                    ? value : bucket;
+                var fraction = remaining.Num("remainingFraction");
+                if (fraction is null && remaining.Num("remainingAmount") == 0)
                 {
-                    var amount = bucket.Num("remainingAmount");
-                    if (amount == 0 || (amount is null && reset is not null))
-                    {
-                        fraction = 0;
-                    }
-                    else
-                    {
-                        continue;
-                    }
+                    fraction = 0;
                 }
 
+                var used = fraction is { } f && double.IsFinite(f) && f is >= 0 and <= 1
+                    ? Clamp((1 - f) * 100) : null;
+                var reset = bucket.Time("resetTime") ?? remaining.Time("resetTime");
                 var name = bucket.Str("displayName") ?? bucket.Str("window") ?? bucket.Str("bucketId");
-                if (name is null || fraction is < 0 or > 1)
+                if (name is null || (used is null && reset is null))
                 {
                     continue;
                 }
 
-                var label = group is { Length: > 0 } ? $"{group} / {name}" : name;
-                var stableKey = bucket.Str("bucketId") is { } bucketId
-                    ? $"bucket:{bucketId}"
-                    : bucket.Str("window") is { } window
-                        ? $"window:{window}"
-                        : null;
-                var identity = stableKey is null ? null : "antigravity:" + Convert.ToHexString(
+                var stableKey = bucket.Str("bucketId") is { } bucketId ? $"bucket:{bucketId}"
+                    : bucket.Str("window") is { } window ? $"window:{window}" : null;
+                var identity = stableKey is null ? null : "antigravity-rate-limit:" + Convert.ToHexString(
                     SHA256.HashData(Encoding.UTF8.GetBytes(stableKey)));
                 if (identity is not null && !identities.Add(identity))
                 {
                     identity = null;
                 }
 
-                limits.Add(new QuotaLimit(label, Clamp((1 - fraction.Value) * 100), reset, Identity: identity));
+                limits.Add(new QuotaLimit(group is { Length: > 0 } ? $"{group} / {name}" : name,
+                    used, reset, Identity: identity));
             }
         }
 

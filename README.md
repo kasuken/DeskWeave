@@ -24,8 +24,8 @@ Built with **.NET 10 + WPF**, styled with the Neon Intrusion palette, and inspir
 
 Download the self-contained Windows x64 build from [GitHub Releases](https://github.com/kasuken/DeskWeave/releases/latest):
 
-1. Download [DeskWeave-0.4.0-win-x64.zip](https://github.com/kasuken/DeskWeave/releases/download/v0.4.0/DeskWeave-0.4.0-win-x64.zip) and [SHA256SUMS.txt](https://github.com/kasuken/DeskWeave/releases/download/v0.4.0/SHA256SUMS.txt).
-2. Compare `Get-FileHash .\DeskWeave-0.4.0-win-x64.zip -Algorithm SHA256` with the checksum file.
+1. Download [DeskWeave-0.4.1-win-x64.zip](https://github.com/kasuken/DeskWeave/releases/download/v0.4.1/DeskWeave-0.4.1-win-x64.zip) and [SHA256SUMS.txt](https://github.com/kasuken/DeskWeave/releases/download/v0.4.1/SHA256SUMS.txt).
+2. Compare `Get-FileHash .\DeskWeave-0.4.1-win-x64.zip -Algorithm SHA256` with the checksum file.
 3. Extract the **entire** ZIP to a stable, writable folder, then run `DeskWeave.exe` inside its folder. Keep the bundled files together.
 
 Requires a Windows 10/11 x64 desktop supported by .NET 10. The portable ZIP includes the runtime; no SDK or runtime installation and no administrator access are needed. Linux and macOS cannot run the WPF app. Provider CLIs and paid accounts are optional; the other widgets work without them.
@@ -92,6 +92,8 @@ There is no separate DeskWeave account or API-key form. Sign in with the support
 Here, `~` means your Windows user-profile folder. These environment variables override credential directories, not individual file paths.
 
 Quota refreshes run every **five minutes**. Missing credentials and free or unrecognized plans are omitted; no recognized plans means no quota panel. An available plan can still report **Quota unavailable** if its endpoint returns no supported limits.
+
+Antigravity is shown only when `loadCodeAssist` reports a supported **AI credits available** balance (`paidTier.availableCredits`, type `GOOGLE_ONE_AI`). Missing balances hide the provider rather than falling back to Claude/GPT or Gemini model rate limits. An explicitly reported zero balance remains visible. The balance has no percentage meter, reset time or runway estimate because this response does not supply a total allowance or renewal date.
 
 Quota runway is an **estimate**, not a guarantee: it assumes the rate between the first and last recent observations continues until the limit resets. It uses at least three fresh observations spanning at least 15 minutes within the last hour, without making extra provider requests. Until enough data is available, or when recent usage is unchanged, it says so rather than predicting unlimited usage. A reset, counter decrease, plan/limit change, failed refresh or gap over 10 minutes starts a new series; stale readings do not advance it.
 
@@ -171,14 +173,14 @@ dotnet test .\DeskWeave.slnx --configuration Release --no-build
 
 The tray is the interactive surface; `WidgetHost` owns shared data loops and `WidgetSet` owns each screen's windows. Keep provider parsing in Core and Windows-specific work in the WPF project.
 
-To reproduce the portable build from the [v0.4.0 source](https://github.com/kasuken/DeskWeave/tree/v0.4.0), use .NET SDK 10.0.404 on Windows x64:
+To reproduce the portable build from the [v0.4.1 source](https://github.com/kasuken/DeskWeave/tree/v0.4.1), use .NET SDK 10.0.404 on Windows x64:
 
 ```powershell
-dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.4.0-win-x64
-Copy-Item .\README.md, .\CHANGELOG.md -Destination .\artifacts\DeskWeave-0.4.0-win-x64
-New-Item -ItemType Directory -Path .\artifacts\DeskWeave-0.4.0-win-x64\docs -Force
-Copy-Item .\docs\agent-activity.md -Destination .\artifacts\DeskWeave-0.4.0-win-x64\docs
-Compress-Archive -Path .\artifacts\DeskWeave-0.4.0-win-x64 -DestinationPath .\artifacts\DeskWeave-0.4.0-win-x64.zip
+dotnet publish .\src\DeskWeave\DeskWeave.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=false -p:PublishTrimmed=false -p:DebugType=None -p:DebugSymbols=false --output .\artifacts\DeskWeave-0.4.1-win-x64
+Copy-Item .\README.md, .\CHANGELOG.md -Destination .\artifacts\DeskWeave-0.4.1-win-x64
+New-Item -ItemType Directory -Path .\artifacts\DeskWeave-0.4.1-win-x64\docs -Force
+Copy-Item .\docs\agent-activity.md -Destination .\artifacts\DeskWeave-0.4.1-win-x64\docs
+Compress-Archive -Path .\artifacts\DeskWeave-0.4.1-win-x64 -DestinationPath .\artifacts\DeskWeave-0.4.1-win-x64.zip
 ```
 
 `--self-contained true` includes the .NET runtime in the publish folder. Package the entire folder in the release ZIP, not just `DeskWeave.exe`.

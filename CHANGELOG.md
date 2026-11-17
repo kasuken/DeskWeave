@@ -2,6 +2,12 @@
 
 All notable changes to DeskWeave are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and semantic versioning.
 
+## [0.4.1] - 2026-11-17
+
+### Fixed
+
+- **Antigravity credits** - Show the reported AI credit balance instead of model rate limits. Hide Antigravity when no supported balance is available, including cached model-only entries; an explicitly reported zero balance remains visible.
+
 ## [0.4.0] - 2026-11-12
 
 ### Added

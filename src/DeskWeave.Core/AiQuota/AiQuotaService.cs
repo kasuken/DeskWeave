@@ -50,7 +50,6 @@ public sealed class AiQuotaService(
     private const string ClaudeUsage = "https://api.anthropic.com/api/oauth/usage";
     private const string CodexUsage = "https://chatgpt.com/backend-api/wham/usage";
     private const string AntigravityAssist = "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist";
-    private const string AntigravitySummary = "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary";
     private const int MaxBytes = 1_000_000;
 
     private static readonly HashSet<string> AllowedHosts =
@@ -219,21 +218,14 @@ public sealed class AiQuotaService(
             return ProviderOutcome.Auth(id);
         }
 
-        var (project, rawPlan) = QuotaParsers.ParseAntigravityAssist(
-            await PostAntigravityAsync(AntigravityAssist, "{}", credential.AccessToken, cancellationToken));
-        if (QuotaParsers.PlanLabel(id, rawPlan) is not { } plan)
+        var (_, parsed) = QuotaParsers.ParseAntigravityAssist(await PostAntigravityAsync(
+            AntigravityAssist, """{"metadata":{"ideType":"ANTIGRAVITY"}}""", credential.AccessToken, cancellationToken));
+        if (parsed.Plan is not { } plan || parsed.Limits.Count == 0)
         {
             return ProviderOutcome.Absent(id);
         }
 
-        if (project is null)
-        {
-            return Active(id, plan, [], "Quota unavailable");
-        }
-
-        var limits = QuotaParsers.ParseAntigravitySummary(await PostAntigravityAsync(
-            AntigravitySummary, JsonSerializer.Serialize(new { project }), credential.AccessToken, cancellationToken));
-        return Active(id, plan, limits, limits.Count == 0 ? "Quota unavailable" : null);
+        return Active(id, plan, parsed.Limits, parsed.Status);
     }
 
     private Task<string> PostAntigravityAsync(string url, string json, string token, CancellationToken cancellationToken)
@@ -357,6 +349,8 @@ public static class QuotaCache
                 return cached
                     .Where(q => q is { Id: not null, Plan: not null, Limits: not null } && QuotaProviders.Order.Contains(q.Id)
                                 && QuotaReconciler.IsFresh(q, now))
+                    .Where(q => q.Id != QuotaProviders.Antigravity
+                        || q.Limits.Any(l => l.RemainingAmount is { } amount && double.IsFinite(amount) && amount >= 0))
                     .ToList();
             }
         }

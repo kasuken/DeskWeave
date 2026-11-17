@@ -11,6 +11,58 @@ public class AiQuotaWidgetTests(WpfFixture fixture)
     private static readonly DateTimeOffset Now = DateTimeOffset.UtcNow;
 
     [Fact]
+    public void Widget_renders_antigravity_available_credits_without_a_meter_reset_or_forecast()
+    {
+        fixture.Run(() =>
+        {
+            var widget = new AiQuotaWidget();
+            var (_, parsed) = QuotaParsers.ParseAntigravityAssist("""
+                {"paidTier":{"name":"Google AI Pro","availableCredits":[
+                  {"creditType":"GOOGLE_ONE_AI","creditAmount":"1250"}]}}
+                """);
+            var quota = new ProviderQuota("antigravity", "Antigravity", parsed.Plan!, parsed.Limits, parsed.Status, Now);
+
+            widget.Update([quota], refreshing: false, updatedAt: Now);
+
+            var row = Assert.Single(ReadCard(widget).Limits);
+            Assert.Equal("AI credits", row.Label);
+            Assert.Equal("1,250 available", row.Value);
+            Assert.Equal(Visibility.Collapsed, row.MeterVisibility);
+            Assert.Equal(Visibility.Collapsed, row.DetailVisibility);
+            Assert.Equal(Visibility.Collapsed, row.ForecastVisibility);
+            Assert.Empty(row.Forecast);
+        });
+    }
+
+    [Fact]
+    public void Widget_labels_antigravity_rate_limit_fallback_and_keeps_its_meter()
+    {
+        fixture.Run(() =>
+        {
+            var widget = new AiQuotaWidget();
+            var limits = QuotaParsers.ParseAntigravitySummary("""
+                {"groups":[{"displayName":"Gemini","buckets":[
+                  {"bucketId":"gemini-weekly","displayName":"Weekly","remaining":{"remainingFraction":0.75},
+                   "resetTime":"2099-01-01T00:00:00Z"}]}]}
+                """);
+            var quota = new ProviderQuota("antigravity", "Antigravity", "Google AI Pro", limits,
+                "Model rate limits (credits unavailable)", Now);
+
+            widget.Update([quota], refreshing: false, updatedAt: Now);
+
+            var card = ReadCard(widget);
+            Assert.Equal("Model rate limits (credits unavailable)", card.Status);
+            Assert.Equal(Visibility.Visible, card.StatusVisibility);
+            var row = Assert.Single(card.Limits);
+            Assert.Equal("Gemini / Weekly", row.Label);
+            Assert.Equal("25% used", row.Value);
+            Assert.Equal(Visibility.Visible, row.MeterVisibility);
+            Assert.Equal(Visibility.Visible, row.DetailVisibility);
+            Assert.Equal(Visibility.Visible, row.ForecastVisibility);
+        });
+    }
+
+    [Fact]
     public void Widget_renders_a_qualified_estimate_without_changing_the_meter_or_reset()
     {
         fixture.Run(() =>

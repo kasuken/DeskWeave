@@ -71,7 +71,7 @@ public partial class AiQuotaWidget : UserControl
             var hasMeter = QuotaText.HasMeter(limit, now);
             var critical = hasMeter && limit.UsedPercent >= CriticalPercent;
             var detail = QuotaText.Detail(limit, now);
-            var forecast = Forecast(quota, limit, now);
+            var forecast = limit.RemainingAmount is null ? Forecast(quota, limit, now) : string.Empty;
             return new LimitRow(
                 limit.Label,
                 QuotaText.Value(limit, now),
@@ -82,7 +82,7 @@ public partial class AiQuotaWidget : UserControl
                 detail,
                 detail.Length > 0 ? Visibility.Visible : Visibility.Collapsed,
                 forecast,
-                Visibility.Visible);
+                forecast.Length > 0 ? Visibility.Visible : Visibility.Collapsed);
         }).ToList();
 
         var lastKnown = quota.Stale

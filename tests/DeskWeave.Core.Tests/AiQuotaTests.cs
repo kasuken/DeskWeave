@@ -134,44 +134,106 @@ public class AiQuotaTests
         Assert.Null(QuotaParsers.ParseAntigravityCredential("""{"auth_method":"api_key","token":{"access_token":"t"}}"""));
     }
 
-    [Fact]
-    public void Antigravity_assist_reads_project_object_and_paid_tier()
+    [Theory]
+    [InlineData("\"1250.5\"", 1250.5, "1,250.5 available")]
+    [InlineData("1250", 1250, "1,250 available")]
+    [InlineData("\"0\"", 0, "0 available")]
+    public void Antigravity_assist_reads_credit_balance_separately_from_model_quotas(
+        string amount, double expected, string value)
     {
-        var (project, plan) = QuotaParsers.ParseAntigravityAssist(
-            """{"cloudaicompanionProject":{"id":"p-1"},"currentTier":{"name":"Free"},"paidTier":{"name":"Google AI Pro"}}""");
-
-        Assert.Equal("p-1", project);
-        Assert.Equal("Google AI Pro", plan);
-    }
-
-    [Fact]
-    public void Antigravity_summary_builds_group_labels_and_exhausted_buckets()
-    {
-        var limits = QuotaParsers.ParseAntigravitySummary("""
-            {"groups":[{"displayName":"Gemini","buckets":[
-              {"displayName":"Daily","remainingFraction":0.25,"resetTime":"2026-11-06T00:00:00Z"},
-              {"window":"Weekly","remainingAmount":0,"resetTime":"2026-11-10T00:00:00Z"},
-              {"bucketId":"off","disabled":true,"remainingFraction":1}]}]}
+        var (_, parsed) = QuotaParsers.ParseAntigravityAssist($$"""
+            {"currentTier":{"name":"Free"},"paidTier":{"name":"Google AI Pro","availableCredits":[
+              {"creditType":"OTHER","creditAmount":"99999"},
+              {"creditType":"GOOGLE_ONE_AI","creditAmount":{{amount}},"minimumCreditAmountForUsage":"50"}]},
+             "groups":[{"displayName":"Claude and GPT models","buckets":[{"remainingFraction":1}]}]}
             """);
 
-        Assert.Collection(limits,
-            l => { Assert.Equal("Gemini / Daily", l.Label); Assert.Equal(75, l.UsedPercent); },
-            l => { Assert.Equal("Gemini / Weekly", l.Label); Assert.Equal(100, l.UsedPercent); });
+        Assert.Equal("Google AI Pro", parsed.Plan);
+        Assert.Null(parsed.Status);
+        var limit = Assert.Single(parsed.Limits);
+        Assert.Equal("AI credits", limit.Label);
+        Assert.Equal(expected, limit.RemainingAmount);
+        Assert.Equal("google_one_ai:credits", limit.Identity);
+        Assert.Null(limit.UsedPercent);
+        Assert.Null(limit.ResetsAt);
+        Assert.Equal(value, QuotaText.Value(limit, Now));
+        Assert.False(QuotaText.HasMeter(limit, Now));
+        Assert.Empty(QuotaText.Detail(limit, Now));
+    }
+
+    [Theory]
+    [InlineData("""{"creditType":"GOOGLE_ONE_AI"}""")]
+    [InlineData("""{"creditType":"GOOGLE_ONE_AI","creditAmount":null}""")]
+    [InlineData("""{"creditType":"GOOGLE_ONE_AI","creditAmount":"unknown"}""")]
+    [InlineData("""{"creditType":"GOOGLE_ONE_AI","creditAmount":-1}""")]
+    [InlineData("""{"creditType":"GOOGLE_ONE_AI","creditAmount":"NaN"}""")]
+    [InlineData("""{"creditType":"GOOGLE_ONE_AI","creditAmount":"Infinity"}""")]
+    [InlineData("""{"creditType":"OTHER","creditAmount":1000}""")]
+    public void Antigravity_unknown_or_invalid_credit_balance_is_not_shown_as_zero(string credit)
+    {
+        var (_, parsed) = QuotaParsers.ParseAntigravityAssist($$$"""
+            {"paidTier":{"name":"Google AI Pro","availableCredits":[{{{credit}}}]}}
+            """);
+
+        Assert.Equal("Google AI Pro", parsed.Plan);
+        Assert.Empty(parsed.Limits);
+        Assert.Equal("Credits unavailable", parsed.Status);
     }
 
     [Fact]
-    public void Antigravity_identity_uses_a_stable_provider_key_not_the_display_label()
+    public void Antigravity_missing_credits_preserves_the_plan_and_reads_the_project_for_fallback()
+    {
+        var (project, parsed) = QuotaParsers.ParseAntigravityAssist("""
+            {"cloudaicompanionProject":{"id":"p-1"},"paidTier":{"name":"Google AI Pro"}}
+            """);
+
+        Assert.Equal("p-1", project);
+        Assert.Equal("Google AI Pro", parsed.Plan);
+        Assert.Empty(parsed.Limits);
+        Assert.Equal("Credits unavailable", parsed.Status);
+    }
+
+    [Theory]
+    [InlineData("""{"remainingFraction":0.25}""", 75d)]
+    [InlineData("""{"remaining":{"remainingFraction":0.25}}""", 75d)]
+    [InlineData("""{"remaining":{"remainingAmount":"0"}}""", 100d)]
+    [InlineData("""{"remaining":{"remainingFraction":0}}""", 100d)]
+    [InlineData("""{"remaining":{"remainingFraction":1}}""", 0d)]
+    [InlineData("""{"remaining":{}}""", null)]
+    [InlineData("""{"remaining":{"remainingFraction":-1}}""", null)]
+    [InlineData("""{"remaining":{"remainingFraction":"NaN"}}""", null)]
+    public void Antigravity_rate_limits_read_reported_usage_without_inventing_exhaustion(string remaining, double? expected)
+    {
+        var limits = QuotaParsers.ParseAntigravitySummary($$$"""
+            {"response":{"groups":[{"displayName":"Claude and GPT models","buckets":[
+              {"bucketId":"claude-weekly","displayName":"Weekly","resetTime":"2026-11-06T00:00:00Z",
+               {{{remaining[1..^1]}}}},
+              {"bucketId":"off","displayName":"Disabled","disabled":true,"remainingFraction":0}]}]}}
+            """);
+
+        var limit = Assert.Single(limits);
+        Assert.Equal("Claude and GPT models / Weekly", limit.Label);
+        Assert.Equal(expected, limit.UsedPercent);
+        Assert.Equal(expected is not null, QuotaText.HasMeter(limit, Now));
+        Assert.Null(limit.RemainingAmount);
+        Assert.Equal(Now.AddHours(9), limit.ResetsAt);
+        if (expected is null)
+        {
+            Assert.Equal("N/A", QuotaText.Value(limit, Now));
+        }
+    }
+
+    [Fact]
+    public void Antigravity_rate_limits_preserve_stable_private_identities_across_display_names()
     {
         var first = Assert.Single(QuotaParsers.ParseAntigravitySummary("""
-            {"groups":[{"displayName":"Gemini","buckets":[
-              {"bucketId":"model-bucket-1","displayName":"Daily","remainingFraction":0.5,"resetTime":"2026-11-06T00:00:00Z"}]}]}
+            {"buckets":[{"bucketId":"model-bucket-1","displayName":"Weekly","remainingFraction":0.5}]}
             """));
-        var translated = Assert.Single(QuotaParsers.ParseAntigravitySummary("""
-            {"groups":[{"displayName":"Gemini","buckets":[
-              {"bucketId":"model-bucket-1","displayName":"Día","remainingFraction":0.5,"resetTime":"2026-11-06T00:00:00Z"}]}]}
+        var renamed = Assert.Single(QuotaParsers.ParseAntigravitySummary("""
+            {"summary":{"buckets":[{"bucketId":"model-bucket-1","displayName":"Renamed","remainingFraction":0.5}]}}
             """));
 
-        Assert.Equal(first.Identity, translated.Identity);
+        Assert.Equal(first.Identity, renamed.Identity);
         Assert.DoesNotContain("model-bucket-1", first.Identity, StringComparison.Ordinal);
     }
 
@@ -254,6 +316,98 @@ public class AiQuotaTests
         }
     }
 
+    [Theory]
+    [InlineData("legacy")]
+    [InlineData("credits")]
+    [InlineData("rate-limits")]
+    public void Cache_hides_antigravity_without_credits(string kind)
+    {
+        var file = Path.Combine(Path.GetTempPath(), $"deskweave-quota-{Guid.NewGuid():N}.json");
+        var limit = kind switch
+        {
+            "legacy" => new QuotaLimit("Claude and GPT models / Weekly", 0, Now.AddDays(1), Identity: "antigravity:old"),
+            "rate-limits" => Assert.Single(QuotaParsers.ParseAntigravitySummary("""
+                {"buckets":[{"bucketId":"weekly","displayName":"Weekly","remainingFraction":0.5}]}
+                """)),
+            _ => new QuotaLimit("AI credits", null, null, Identity: "google_one_ai:credits", RemainingAmount: 1250),
+        };
+        try
+        {
+            QuotaCache.Write(file,
+                [new ProviderQuota("antigravity", "Antigravity", "Google AI Pro", [limit], null, Now)]);
+
+            var cached = QuotaCache.Read(file, Now);
+            if (kind != "credits")
+            {
+                Assert.Empty(cached);
+            }
+            else
+            {
+                var quota = Assert.Single(cached);
+                Assert.Equal("Google AI Pro", quota.Plan);
+                Assert.Equal(limit, Assert.Single(quota.Limits));
+                Assert.Null(quota.Status);
+            }
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true, "0")]
+    public async Task Service_hides_antigravity_without_credits_and_never_requests_rate_limits(
+        bool hasCredits, bool hasProject, string amount = "1250")
+    {
+        var home = Directory.CreateTempSubdirectory("deskweave-home-").FullName;
+        try
+        {
+            var sources = new QuotaSources(home, _ => null, (_, _, _) => Task.FromResult<CommandResult?>(null),
+                () => """{"auth_method":"consumer","token":{"access_token":"test-token"}}""");
+            var response = hasCredits
+                ? $$$"""{"paidTier":{"name":"Google AI Pro","availableCredits":[{"creditType":"GOOGLE_ONE_AI","creditAmount":"{{{amount}}}"}]}}"""
+                : """{"paidTier":{"name":"Google AI Pro"}}""";
+            if (hasProject)
+            {
+                response = response.Insert(1, "\"cloudaicompanionProject\":\"test-project\",");
+            }
+            using var handler = new AntigravityHandler(response);
+            using var http = new HttpClient(handler);
+            var cache = Path.Combine(home, "cache.json");
+            QuotaCache.Write(cache, [new ProviderQuota("antigravity", "Antigravity", "Google AI Pro",
+                [new QuotaLimit("AI credits", null, null, RemainingAmount: 1250)], null, DateTimeOffset.UtcNow)]);
+            var service = new AiQuotaService(http, sources, cache);
+            service.LoadCached();
+
+            var result = await service.RefreshAsync(CancellationToken.None);
+
+            Assert.Equal(1, handler.RequestCount);
+            if (hasCredits)
+            {
+                var quota = Assert.Single(result);
+                Assert.Equal("antigravity", quota.Id);
+                Assert.Equal("Google AI Pro", quota.Plan);
+                Assert.Equal(double.Parse(amount, System.Globalization.CultureInfo.InvariantCulture),
+                    Assert.Single(quota.Limits).RemainingAmount);
+                Assert.Null(quota.Status);
+            }
+            else
+            {
+                Assert.Empty(result);
+                Assert.Empty(QuotaCache.Read(cache, DateTimeOffset.UtcNow));
+            }
+        }
+        finally
+        {
+            Directory.Delete(home, recursive: true);
+        }
+    }
+
     [Fact]
     public async Task Service_hides_missing_sign_ins_and_marks_expired_claude_login()
     {
@@ -283,6 +437,23 @@ public class AiQuotaTests
 
     private static ProviderQuota Quota(string id, DateTimeOffset fetchedAt) =>
         new(id, QuotaProviders.Name(id), "Pro", [new QuotaLimit("5h", 42, fetchedAt.AddHours(3))], null, fetchedAt);
+
+    private sealed class AntigravityHandler(string json) : HttpMessageHandler
+    {
+        public int RequestCount { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Assert.Equal("test-token", request.Headers.Authorization?.Parameter);
+            Assert.Equal(1, RequestCount);
+            Assert.Equal("https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist", request.RequestUri!.AbsoluteUri);
+            Assert.Equal("""{"metadata":{"ideType":"ANTIGRAVITY"}}""", await request.Content!.ReadAsStringAsync(cancellationToken));
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(json) };
+        }
+    }
 
     private sealed class FailingHandler : HttpMessageHandler
     {

@@ -1,13 +1,14 @@
 namespace DeskWeave.Core.AiQuota;
 
-/// <summary>One usage limit of a subscription. <see cref="UsedPercent"/> is null when the provider did not report a percentage.</summary>
+/// <summary>One usage limit or credit balance. <see cref="UsedPercent"/> is null when the provider did not report a percentage.</summary>
 public sealed record QuotaLimit(
     string Label,
     double? UsedPercent,
     DateTimeOffset? ResetsAt,
     string? Detail = null,
     bool Unlimited = false,
-    string? Identity = null);
+    string? Identity = null,
+    double? RemainingAmount = null);
 
 /// <summary>Display-only snapshot of one paid AI subscription. Never contains credentials or account identifiers.</summary>
 public sealed record ProviderQuota(

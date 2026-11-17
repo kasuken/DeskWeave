@@ -56,6 +56,7 @@ public static class QuotaText
     public static string Value(QuotaLimit limit, DateTimeOffset now) =>
         limit.Unlimited ? "Unlimited"
         : limit.ResetsAt is { } reset && reset <= now ? "Refresh due"
+        : limit.RemainingAmount is { } remaining ? $"{remaining.ToString("#,0.###############", CultureInfo.InvariantCulture)} available"
         : limit.UsedPercent is { } used ? $"{Math.Round(used).ToString(CultureInfo.InvariantCulture)}% used"
         : "N/A";
 
